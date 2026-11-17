@@ -5,6 +5,7 @@
 
 import * as api from './api.mjs';
 import * as E from './crypto.mjs';
+import { chatSignature, sniffAudioType } from './logic.mjs';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -25,6 +26,7 @@ export const S = {
   msgsPrimed: false,
   rc: null,            // remote config map (key -> parsed JSON value)
   unlocked: false,
+  partnerKeyChanged: false, // set when the partner's published key rotates
 };
 export const Screens = {};
 export function registerScreen(name, fn) { Screens[name] = fn; }
@@ -123,6 +125,10 @@ export function showScreen(name, param) {
   appEl().scrollTop = 0;
   if (fn) fn(param);
   else appEl().innerHTML = '<div class="screen"><p class="muted">Loading…</p></div>';
+  // Bug #1: Home and Settings used to be dead ends for the partner who
+  // created the invite — re-check the link whenever they are shown while
+  // unlinked (a slow global poll covers the other screens).
+  if ((name === 'home' || name === 'settings') && S.me && S.unlocked && !S.partner) refreshCoupleLink(true);
 }
 
 // ---------------------------------------------------------------- theme + remote config
@@ -177,27 +183,75 @@ async function fetchRemoteConfig() {
 // ---------------------------------------------------------------- e2ee session helpers
 export function e2eeReady() { return !!(S.myPriv && S.partnerPub && S.coupleId); }
 export async function sealText(plain) {
-  if (!e2eeReady()) return null;
+  if (!S.myPriv || !S.coupleId) return null;
+  if (!S.partnerPub) await refreshPartnerKey();
+  if (!S.partnerPub) return null;
   try { return await E.sealCombined(S.myPriv, S.partnerPub, plain); } catch { return null; }
 }
 export async function openText(combined) {
-  if (!e2eeReady() || !combined) return null;
-  try { return await E.openCombined(S.myPriv, S.partnerPub, combined); } catch { return null; }
+  if (!S.myPriv || !S.coupleId || !combined) return null;
+  if (S.partnerPub) {
+    try { return await E.openCombined(S.myPriv, S.partnerPub, combined); } catch { /* fall through to a key refresh + one retry */ }
+  }
+  // The cached partner key may be stale (the partner signed in on a new
+  // browser and rotated their key). Refresh once and retry before
+  // declaring the value unopenable.
+  if (await refreshPartnerKeyIfChanged() && S.partnerPub) {
+    try { return await E.openCombined(S.myPriv, S.partnerPub, combined); } catch { return null; }
+  }
+  return null;
 }
 export async function sealFileBytes(fileId, bytes) {
-  if (!e2eeReady()) return null;
+  if (!S.myPriv || !S.coupleId) return null;
+  if (!S.partnerPub) await refreshPartnerKey();
+  if (!S.partnerPub) return null;
   try { return await E.sealFile(S.myPriv, S.partnerPub, fileId, bytes); } catch { return null; }
 }
 export async function openFileBytes(fileId, blob) {
-  if (!e2eeReady()) return null;
-  try { return await E.openFile(S.myPriv, S.partnerPub, fileId, blob); } catch { return null; }
+  if (!S.myPriv || !S.coupleId || !blob) return null;
+  if (S.partnerPub) {
+    try { return await E.openFile(S.myPriv, S.partnerPub, fileId, blob); } catch { /* fall through to a key refresh + one retry */ }
+  }
+  if (await refreshPartnerKeyIfChanged() && S.partnerPub) {
+    try { return await E.openFile(S.myPriv, S.partnerPub, fileId, blob); } catch { return null; }
+  }
+  return null;
+}
+/** Opens a chat wire value; on failure refreshes the partner key once and retries. Throws if it still cannot open. */
+export async function openChatWireRetry(wire, nonce, type) {
+  if (!S.partnerPub) await refreshPartnerKey();
+  try { return await E.openChatWire(S.myPriv, S.partnerPub, wire, nonce, type); }
+  catch (e) {
+    if (await refreshPartnerKeyIfChanged() && S.partnerPub) {
+      return await E.openChatWire(S.myPriv, S.partnerPub, wire, nonce, type);
+    }
+    throw e;
+  }
 }
 export async function refreshPartnerKey() {
   if (!S.partner) { S.partnerPub = null; return; }
   try {
     const rows = await api.get('/user_keys?user_id=eq.' + S.partner.id + '&select=public_key');
-    S.partnerPub = rows.length ? E.b64decode(rows[0].public_key) : null;
-  } catch { S.partnerPub = null; }
+    const next = rows.length ? E.b64decode(rows[0].public_key) : null;
+    const before = S.partnerPub ? E.b64encode(S.partnerPub) : '';
+    const after = next ? E.b64encode(next) : '';
+    if (before && after && before !== after) {
+      S.partnerKeyChanged = true;
+      toast('Your partner’s message key changed — they may have signed in on a new device. Compare safety numbers in Settings.');
+    }
+    S.partnerPub = next;
+  } catch { /* transient error: keep the last known good key, never discard it */ }
+}
+let lastKeyRefreshAt = 0;
+/** Refreshes the partner key (throttled); resolves true only when the key actually changed. */
+export async function refreshPartnerKeyIfChanged(force) {
+  const now = Date.now();
+  if (!force && now - lastKeyRefreshAt < 3000) return false;
+  lastKeyRefreshAt = now;
+  const before = S.partnerPub ? E.b64encode(S.partnerPub) : '';
+  await refreshPartnerKey();
+  const after = S.partnerPub ? E.b64encode(S.partnerPub) : '';
+  return before !== after;
 }
 async function publishMyKey() {
   await api.post('/user_keys', { user_id: uid(), public_key: E.b64encode(S.myPub) }, 'resolution=merge-duplicates');
@@ -205,6 +259,7 @@ async function publishMyKey() {
 
 // ---------------------------------------------------------------- couple loading
 export async function loadCouple() {
+  const hadCouple = !!S.coupleId;
   S.coupleId = ''; S.partner = null;
   const rows = await api.get('/couple_members?user_id=eq.' + uid() + '&select=couple_id');
   if (!rows.length) { await refreshPartnerKey(); return; }
@@ -216,6 +271,18 @@ export async function loadCouple() {
     S.partner = profs[0] || null;
   }
   await refreshPartnerKey();
+  // Bug #8: when the couple link appears mid-session, prime the global
+  // poll cursors first so the couple's history is not replayed as "new".
+  if (!hadCouple && S.coupleId) await primeCursors();
+}
+let coupleLoadInFlight = false;
+/** Bug #1: while unlinked, quietly re-check whether the partner has joined; on the transition, re-render the current screen. */
+export async function refreshCoupleLink(rerender) {
+  if (!S.me || !S.unlocked || S.partner || coupleLoadInFlight) return;
+  coupleLoadInFlight = true;
+  try { await loadCouple(); } catch { /* next check retries */ }
+  coupleLoadInFlight = false;
+  if (S.partner && rerender) showScreen(S.screen, S.screenParam);
 }
 
 // ---------------------------------------------------------------- vibration + notifications
@@ -280,9 +347,38 @@ registerScreen('auth', () => {
         if (mode === 'register') {
           const name = document.getElementById('a-name').value.trim();
           if (!name) throw new Error('Please enter your name.');
-          const res = await api.signUp(email, password);
-          if (!res.access_token) await api.logIn(email, password);
-          await api.post('/profiles', { id: uid(), display_name: name, role });
+          // Bug #0: the auth user can be created while a later step
+          // fails. Never strand the user with a raw database error —
+          // always land in the sign-in / profile-completion path.
+          try {
+            await api.signUp(email, password);
+          } catch (e) {
+            // "User already registered" (bug #12): fall through and sign
+            // in with the same credentials instead of aborting.
+            if (!/already|exists|registered/i.test(e.message || '')) throw e;
+          }
+          if (!uid()) await api.logIn(email, password);
+          if (!uid()) throw new Error('We could not read your new account. Please try signing in.');
+          const existing = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+          if (existing.length) {
+            // Profile already exists for this account: continue as a
+            // sign-in (afterLogin routes to key setup/unlock as needed).
+            await afterLogin(password);
+            toast('Welcome back — this account was already set up.');
+            return;
+          }
+          try {
+            await api.post('/profiles', { id: uid(), display_name: name, role });
+          } catch (e) {
+            if (e.status === 409) { await afterLogin(password); return; }
+            // The account exists but the profile step failed: continue
+            // into the profile-completion screen rather than showing a
+            // raw error.
+            showScreen('profileSetup', { password });
+            toast('Your account was created — please finish this one step.');
+            return;
+          }
+          S.me = { id: uid(), display_name: name, role, battery_share: false, arrival_share: false };
           await setupKeys(password, true);
           toast('Your account is ready.');
           offerPinSetup();
@@ -313,10 +409,23 @@ async function afterLogin(password) {
   S.me = profs[0];
   const wrapped = ls.get('wrappedKey:' + uid(), null);
   if (wrapped) {
+    let unwrapped = true;
     try {
       S.myPriv = await E.unwrapPrivateKey(wrapped, password);
-    } catch {
-      throw new Error('This password does not unlock the message key stored in this browser. If you changed your password elsewhere, use “Reset my key” in Settings after signing in with your old password, or clear this browser’s data and create a fresh key.');
+    } catch { unwrapped = false; }
+    if (!unwrapped) {
+      // Bug #6: this used to be a dead end — the error pointed at a
+      // Settings action the user could never reach, because sign-in
+      // itself was blocked. Offer the recovery right here instead.
+      const ok = await confirmDlg(
+        'This browser’s key can’t be opened',
+        'The message key stored in this browser does not open with this password — this happens if the password was changed on another device. You can create a fresh key for this browser: new messages will work right away, but older messages that were sealed to the old key will not open here.',
+        'Create a fresh key');
+      if (!ok) throw new Error('Sign-in stopped: this browser’s key could not be opened with that password.');
+      await setupKeys(password, false);
+      toast('A fresh key was created for this browser. Compare safety numbers with your partner again (Settings).');
+      await enterApp();
+      return;
     }
     // Recompute the public key from the private key.
     S.myPub = E.publicFromPrivate(S.myPriv);
@@ -347,13 +456,28 @@ registerScreen('profileSetup', (param) => {
   document.getElementById('p-go').onclick = async () => {
     const name = document.getElementById('p-name').value.trim();
     const err = document.getElementById('p-err');
+    const btn = document.getElementById('p-go');
     if (!name) { err.textContent = 'Please enter your name.'; return; }
+    err.textContent = '';
+    btn.disabled = true; btn.textContent = 'Saving…';
     try {
-      await api.post('/profiles', { id: uid(), display_name: name, role });
-      S.me = { id: uid(), display_name: name, role, battery_share: false, arrival_share: false };
+      try {
+        await api.post('/profiles', { id: uid(), display_name: name, role });
+        S.me = { id: uid(), display_name: name, role, battery_share: false, arrival_share: false };
+      } catch (e) {
+        if (e.status !== 409) throw e;
+        // Profile already exists (e.g. an earlier attempt got further
+        // than it looked): fetch it and continue.
+        const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+        if (!profs.length) throw e;
+        S.me = profs[0];
+      }
       await setupKeys(param.password, true);
       await enterApp();
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) {
+      err.textContent = e.message;
+      btn.disabled = false; btn.textContent = 'Save and continue';
+    }
   };
 });
 
@@ -370,12 +494,16 @@ function offerPinSetup() {
     await enterApp();
   };
 }
+// Bug #13: PIN records are per account — on a shared browser, one
+// partner's PIN must never gate the other's account.
+export const pinKey = () => 'pin:' + uid();
+export const secretPinKey = () => 'secretPin:' + uid();
 export async function setPin(pin) {
   const salt = E.newSalt();
-  ls.set('pin', { salt: E.bytesToHex(salt), hash: await E.hashSecretHex(pin, salt), on: true });
+  ls.set(pinKey(), { salt: E.bytesToHex(salt), hash: await E.hashSecretHex(pin, salt), on: true });
 }
 export async function verifyPin(pin) {
-  const p = ls.get('pin', null);
+  const p = ls.get(pinKey(), null);
   if (!p || !p.on) return true;
   const hash = await E.hashSecretHex(pin, E.hexToBytesLocal(p.salt));
   return hash === p.hash;
@@ -417,22 +545,28 @@ function loadSessionEmail() {
 }
 
 // ---------------------------------------------------------------- global pollers (events + new-message notices + scheduled sends)
+/** Moves the global poll cursors to the newest event/message so history is never replayed as new. */
+export async function primeCursors() {
+  try {
+    if (S.coupleId) {
+      const ev = await api.get('/events?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
+      if (ev.length) S.lastEventId = Math.max(S.lastEventId, ev[0].id);
+      const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
+      if (ms.length) S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, ms[0].id);
+    }
+  } catch { /* cursors keep their current values */ }
+  S.eventsPrimed = true; S.msgsPrimed = true;
+}
 let globalStarted = false;
 function startGlobalLoops() {
   if (globalStarted) return;
   globalStarted = true;
   // Prime cursors so old events/messages never replay as new.
-  (async () => {
-    try {
-      if (S.coupleId) {
-        const ev = await api.get('/events?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
-        S.lastEventId = ev.length ? ev[0].id : 0;
-        const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
-        S.lastMsgIdSeen = ms.length ? ms[0].id : 0;
-      }
-    } catch { /* cursors stay 0; priming flags below still protect */ }
-    S.eventsPrimed = true; S.msgsPrimed = true;
-  })();
+  primeCursors();
+  // Bug #1: while unlinked, poll slowly for the partner joining; the
+  // transition re-renders whatever screen is open (loadCouple re-primes
+  // the cursors first — bug #8).
+  setInterval(() => { if (!document.hidden) refreshCoupleLink(true); }, 12000);
   setInterval(async () => {
     if (document.hidden || !S.me || !S.coupleId || !S.unlocked) return;
     try {
@@ -480,16 +614,23 @@ function startGlobalLoops() {
     const now = Date.now();
     const due = items.filter((i) => i.sendAtMs <= now);
     if (!due.length) return;
-    const rest = items.filter((i) => i.sendAtMs > now);
+    // Bug #11: a due message that cannot be opened or sent right now
+    // (e.g. the key changed since it was scheduled) stays in storage
+    // for the next tick and the user is told — it is never silently
+    // discarded.
+    const remaining = items.filter((i) => i.sendAtMs > now);
+    let sent = 0, failed = 0;
     for (const item of due) {
+      const plain = await openText(item.sealed);
+      if (plain === null) { remaining.push(item); failed++; continue; }
       try {
-        const plain = await openText(item.sealed);
-        if (plain === null) continue;
         await sendChatTextNow(item.surprise ? 'USSURPRISE1:' + plain : plain, 'main', null, 0);
-      } catch { /* leave for next tick */ }
+        sent++;
+      } catch { remaining.push(item); failed++; }
     }
-    ls.set(key, rest);
-    if (S.screen === 'chat') showScreen('chat', S.screenParam);
+    ls.set(key, remaining);
+    if (failed) toast('A scheduled message could not be sent yet — it is kept and will be retried while this page is open.');
+    if (sent && S.screen === 'chat') showScreen('chat', S.screenParam);
   }, 5000);
 }
 export async function sendChatTextNow(wirePlain, thread, replyToId, expiresAtMs) {
@@ -541,8 +682,8 @@ registerScreen('home', () => {
   if (S.partner) {
     html += '<div class="flex"><div class="partner-ava">' + esc(initials(S.partner.display_name)) + '</div><div class="grow"><div style="font-size:17px;font-weight:600">' + esc(S.partner.display_name) + '</div><div class="muted small">' + esc(S.partner.role) + ' · Linked with you</div></div></div>';
     html += '<div style="margin-top:14px" class="flex"><span class="hero-days">' + days + '</span><span class="muted">' + (days === 1 ? 'day together' : 'days together') + '</span></div>';
-    html += '<p class="small" id="home-streak" style="margin:10px 0 0">Loading your streak…</p>';
-    html += '<p class="small muted" id="home-checkin" style="margin:4px 0 0">Loading today’s check-ins…</p>';
+    html += '<p class="small" id="home-streak" style="margin:10px 0 0">' + esc(homeCache.streakText && homeCache.coupleId === S.coupleId ? homeCache.streakText : 'Loading your streak…') + '</p>';
+    html += '<p class="small muted" id="home-checkin" style="margin:4px 0 0">' + esc(homeCache.coupleId === S.coupleId && homeCache.checkinDay === todayIso() && homeCache.checkinMood ? 'Today’s check-ins — You: ' + homeCache.checkinMood + ' · ' + S.partner.display_name + ': …' : 'Loading today’s check-ins…') + '</p>';
     html += '<p class="small muted" id="home-battery" style="margin:4px 0 0">' + (S.partnerBattery !== null ? 'Your partner’s battery: ' + S.partnerBattery + '%' : (S.partner.battery_share ? 'Your partner’s battery will appear here once they open the app with sharing on.' : 'Battery sharing is off. Turn it on in Settings if you both want it.')) + '</p>';
     html += '<p class="tiny muted" style="margin:8px 0 0">Only your two devices can read your messages — each one is locked before it leaves your device, and nobody in between can open it.</p>';
     html += '<div style="height:12px"></div><button class="btn btn-primary" id="h-tap">💗 Tap to Feel</button>';
@@ -585,14 +726,26 @@ registerScreen('home', () => {
 export function initials(name) {
   return String(name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 }
+// Live obs (b)/(c): the last computed Home streak + my today's check-in
+// mood are cached per couple, so returning to Home shows them instantly
+// (no flip back to "Loading…", no stale "You: Not yet" right after a
+// check-in save) while loadHomeLive refreshes them in the background.
+const homeCache = { coupleId: '', streakText: '', checkinDay: '', checkinMood: '' };
+export function cacheMyCheckin(mood) {
+  homeCache.coupleId = S.coupleId;
+  homeCache.checkinDay = todayIso();
+  homeCache.checkinMood = mood;
+}
 async function loadHomeLive() {
   try {
     const today = todayIso();
     const checkins = await api.get('/checkins?couple_id=eq.' + S.coupleId + '&day=eq.' + today + '&select=user_id,mood');
     const mine = checkins.find((c) => c.user_id === uid());
     const theirs = checkins.find((c) => c.user_id !== uid());
+    if (mine) cacheMyCheckin(mine.mood);
+    const myMood = mine ? mine.mood : (homeCache.coupleId === S.coupleId && homeCache.checkinDay === today ? homeCache.checkinMood : '');
     const ci = document.getElementById('home-checkin');
-    if (ci) ci.textContent = 'Today’s check-ins — You: ' + (mine ? mine.mood : 'Not yet') + ' · ' + (S.partner ? S.partner.display_name : 'Partner') + ': ' + (theirs ? theirs.mood : 'Not yet');
+    if (ci) ci.textContent = 'Today’s check-ins — You: ' + (myMood || 'Not yet') + ' · ' + (S.partner ? S.partner.display_name : 'Partner') + ': ' + (theirs ? theirs.mood : 'Not yet');
     // Streak: days with a check-in (either partner) or a message, up to today.
     const days = new Set(checkins.map(() => today));
     const allCheckins = await api.get('/checkins?couple_id=eq.' + S.coupleId + '&select=day');
@@ -602,8 +755,11 @@ async function loadHomeLive() {
     let streak = 0; let cursor = today;
     if (!days.has(cursor)) { cursor = prevIsoDay(cursor); }
     while (days.has(cursor)) { streak++; cursor = prevIsoDay(cursor); }
+    const streakText = streak > 0 ? '🔥 Together streak: ' + streak + (streak === 1 ? ' day' : ' days') : 'Your together streak starts with a message or a check-in.';
+    homeCache.coupleId = S.coupleId;
+    homeCache.streakText = streakText;
     const st = document.getElementById('home-streak');
-    if (st) st.textContent = streak > 0 ? '🔥 Together streak: ' + streak + (streak === 1 ? ' day' : ' days') : 'Your together streak starts with a message or a check-in.';
+    if (st) st.textContent = streakText;
   } catch { /* home still renders without live extras */ }
 }
 export function prevIsoDay(iso) {
@@ -628,6 +784,14 @@ registerScreen('chat', (param) => {
     recorder: null, recChunks: [], recording: false,
     lastTypingSent: 0,
     photoUrls: new Map(),
+    voiceUrls: new Map(),   // bug #3: decrypted voice object URLs per server id
+    revealedIds: new Set(), // bug #3: revealed surprises survive re-renders
+    lastSig: null,          // bug #3: last rendered signature (diffing)
+    forceBottom: false,     // scroll to bottom on next render (own send)
+    oldestId: 0,            // bug #15: paging cursor for "Load earlier"
+    hasEarlier: false,
+    earlierExhausted: false,
+    loadingEarlier: false,
   };
   const disappearHours = () => Number(prefs().disappearHours || 0);
   const renderShell = () => {
@@ -646,6 +810,7 @@ registerScreen('chat', (param) => {
       '<button class="chip" id="c-disappear">⏳ Disappearing: ' + (disappearHours() === 0 ? 'Off' : disappearHours() + 'h') + '</button>' +
       '</div>' +
       '<div id="chat-pending"></div>' +
+      '<div style="text-align:center;padding:2px"><button class="chip" id="c-earlier" hidden>Load earlier messages</button></div>' +
       '<div class="chat-list" id="chat-list"><p class="muted center">Loading your messages…</p></div>' +
       '<div class="composer"><div class="reply-bar" id="reply-bar" hidden></div>' +
       '<div class="row1"><button class="icon-btn" id="c-photo" aria-label="Send a photo">📷</button>' +
@@ -683,13 +848,14 @@ registerScreen('chat', (param) => {
       toast(next === 0 ? 'Disappearing messages are off.' : 'New messages will disappear after ' + next + (next === 1 ? ' hour.' : ' hours.'));
     };
     document.getElementById('c-schedule').onclick = scheduleDlg;
+    document.getElementById('c-earlier').onclick = loadEarlier;
     document.getElementById('c-photo').onclick = () => document.getElementById('c-file').click();
     document.getElementById('c-file').addEventListener('change', (ev) => { const f = ev.target.files[0]; if (f) sendPhoto(f); ev.target.value = ''; });
     document.getElementById('c-mic').onclick = toggleRecord;
     renderPending();
   };
   async function ensureSecretPin() {
-    const stored = ls.get('secretPin', null);
+    const stored = ls.get(secretPinKey(), null);
     const ask = (title, sub) => new Promise((resolve) => {
       const sh = sheet('<h3>' + esc(title) + '</h3><p class="muted">' + esc(sub) + '</p><input type="password" inputmode="numeric" maxlength="4" id="sp-pin" class="pin-input" style="letter-spacing:.3em"><button class="btn btn-primary" id="sp-go">Continue</button><button class="btn btn-ghost" id="sp-no">Cancel</button>');
       sh.querySelector('#sp-no').onclick = () => { closeSheet(); resolve(null); };
@@ -699,7 +865,7 @@ registerScreen('chat', (param) => {
       const pin = await ask('Set a secret-chat PIN', 'The secret chat has its own 4-digit PIN, kept only on this device.');
       if (!pin || !/^\d{4}$/.test(pin)) { if (pin) toast('Please use 4 digits.'); return false; }
       const salt = E.newSalt();
-      ls.set('secretPin', { salt: E.bytesToHex(salt), hash: await E.hashSecretHex(pin, salt) });
+      ls.set(secretPinKey(), { salt: E.bytesToHex(salt), hash: await E.hashSecretHex(pin, salt) });
       return true;
     }
     const pin = await ask('Secret chat PIN', 'Enter the secret chat’s own PIN.');
@@ -732,7 +898,7 @@ registerScreen('chat', (param) => {
       const sendAtMs = new Date(when).getTime();
       if (sendAtMs <= Date.now()) { toast('Please pick a future time.'); return; }
       const sealed = await sealText(text);
-      if (!sealed) { toast('Link and keys are not ready yet.'); return; }
+      if (!sealed) { toast('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
       const arr = ls.get('scheduled:' + S.coupleId, []);
       arr.push({ sendAtMs, surprise: sh.querySelector('#sc-surprise').checked, sealed, preview: text.substring(0, 40) });
       ls.set('scheduled:' + S.coupleId, arr);
@@ -745,12 +911,29 @@ registerScreen('chat', (param) => {
     const input = document.getElementById('c-input');
     const text = input.value.trim();
     if (!text) return;
-    if (!e2eeReady()) { status('Your keys are still getting ready — try again in a moment.'); return; }
+    if (!e2eeReady()) { status('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
     status('Sending…');
+    const wasSurprise = state.surprise;
+    const replyTo = state.replyTo;
     try {
       const hours = disappearHours();
-      const row = await sendChatTextNow(state.surprise ? 'USSURPRISE1:' + text : text, state.thread, state.replyTo, hours ? Date.now() + hours * 3600000 : 0);
-      if (row && row.id) S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, row.id);
+      const row = await sendChatTextNow(wasSurprise ? 'USSURPRISE1:' + text : text, state.thread, replyTo, hours ? Date.now() + hours * 3600000 : 0);
+      if (row && row.id) {
+        S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, row.id);
+        // Live obs (a): show the just-sent message immediately from the
+        // POST response instead of waiting for the next 4 s poll.
+        if (!state.messages.some((m) => m.serverId === row.id)) {
+          state.messages = state.messages.concat([{
+            serverId: row.id, mine: true, kind: 'text', displayText: text, photoPath: '',
+            surprise: wasSurprise, edited: false, readAt: null,
+            createdAt: row.created_at || new Date().toISOString(),
+            replyToId: replyTo, reactions: [], revealed: false,
+            wire: row.ciphertext, nonce: row.nonce,
+          }]);
+          state.forceBottom = true;
+          renderMessages();
+        }
+      }
       input.value = ''; state.replyTo = null; state.surprise = false;
       renderReplyBar(); status('');
       const chip = document.getElementById('c-surprise'); if (chip) chip.textContent = '🎁 Surprise: Off';
@@ -785,7 +968,24 @@ registerScreen('chat', (param) => {
         status('Sending voice message…');
         try {
           const sealed = await E.sealChatBytes(S.myPriv, S.partnerPub, bytes);
-          await api.post('/messages', { couple_id: S.coupleId, sender_id: uid(), ciphertext: sealed.wire, nonce: sealed.nonce, type: 'voice', thread: state.thread, reply_to_id: null, expires_at: null }, 'return=representation');
+          const rows = await api.post('/messages', { couple_id: S.coupleId, sender_id: uid(), ciphertext: sealed.wire, nonce: sealed.nonce, type: 'voice', thread: state.thread, reply_to_id: null, expires_at: null }, 'return=representation');
+          const row = rows && rows[0];
+          if (row && row.id) {
+            // Live obs (a) + bug #3: cache the local bytes as the
+            // playable URL (typed by sniffing, bug #5) and render now.
+            state.voiceUrls.set(row.id, URL.createObjectURL(new Blob([bytes], { type: sniffAudioType(bytes) })));
+            if (!state.messages.some((m) => m.serverId === row.id)) {
+              state.messages = state.messages.concat([{
+                serverId: row.id, mine: true, kind: 'voice', displayText: '', photoPath: '',
+                surprise: false, edited: false, readAt: null,
+                createdAt: row.created_at || new Date().toISOString(),
+                replyToId: null, reactions: [], revealed: false,
+                wire: row.ciphertext, nonce: row.nonce,
+              }]);
+              state.forceBottom = true;
+              renderMessages();
+            }
+          }
           status(''); load();
         } catch (e) { status('Could not send: ' + e.message); }
       };
@@ -795,7 +995,7 @@ registerScreen('chat', (param) => {
     } catch { status('Microphone access was not granted.'); }
   }
   async function sendPhoto(file) {
-    if (!e2eeReady()) { status('Your keys are still getting ready.'); return; }
+    if (!e2eeReady()) { status('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
     status('Preparing photo…');
     try {
       const bmp = await createImageBitmap(file);
@@ -807,55 +1007,136 @@ registerScreen('chat', (param) => {
       const jpeg = new Uint8Array(await blob.arrayBuffer());
       const fileId = E.uuid();
       const sealed = await sealFileBytes(fileId, jpeg);
-      if (!sealed) { status('Your keys are still getting ready.'); return; }
+      if (!sealed) { status('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
       const path = S.coupleId + '/media/' + fileId + '.bin';
       status('Uploading encrypted photo…');
       await api.storageUpload(path, sealed);
-      await sendChatTextNow('USPHOTO1:' + path, state.thread, state.replyTo, 0);
+      const replyTo = state.replyTo;
+      const row = await sendChatTextNow('USPHOTO1:' + path, state.thread, replyTo, 0);
+      if (row && row.id) {
+        // Live obs (a): render the photo now from the local JPEG.
+        state.photoUrls.set(path, URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' })));
+        if (!state.messages.some((m) => m.serverId === row.id)) {
+          state.messages = state.messages.concat([{
+            serverId: row.id, mine: true, kind: 'photo', displayText: '', photoPath: path,
+            surprise: false, edited: false, readAt: null,
+            createdAt: row.created_at || new Date().toISOString(),
+            replyToId: replyTo, reactions: [], revealed: false,
+            wire: row.ciphertext, nonce: row.nonce,
+          }]);
+          state.forceBottom = true;
+          renderMessages();
+        }
+      }
       state.replyTo = null; renderReplyBar(); status(''); load();
     } catch (e) { status('Photo could not be sent: ' + e.message); }
   }
-  async function load() {
-    try {
-      const rows = await api.get('/messages?couple_id=eq.' + S.coupleId + '&thread=eq.' + state.thread + '&order=id.desc&limit=100&select=id,sender_id,ciphertext,nonce,type,reply_to_id,edited,read_at,expires_at,created_at');
-      const now = Date.now();
-      const view = [];
-      const reactions = {};
-      if (rows.length) {
-        const ids = rows.map((r) => r.id).join(',');
-        const rs = await api.get('/message_reactions?message_id=in.(' + ids + ')&select=message_id,user_id,emoji').catch(() => []);
-        rs.forEach((r) => { (reactions[r.message_id] = reactions[r.message_id] || []).push(r); });
+  const MSG_SELECT = 'id,sender_id,ciphertext,nonce,type,reply_to_id,edited,read_at,expires_at,created_at';
+  /** Decrypts one page of server rows (fetched id.desc) into ascending view rows. */
+  async function buildView(rowsDesc) {
+    const now = Date.now();
+    const view = [];
+    const reactions = {};
+    if (rowsDesc.length) {
+      const ids = rowsDesc.map((r) => r.id).join(',');
+      const rs = await api.get('/message_reactions?message_id=in.(' + ids + ')&select=message_id,user_id,emoji').catch(() => []);
+      rs.forEach((r) => { (reactions[r.message_id] = reactions[r.message_id] || []).push(r); });
+    }
+    const hidden = new Set(ls.get('hiddenMsgs:' + S.coupleId, []));
+    for (const r of rowsDesc.slice().reverse()) {
+      if (hidden.has(r.id)) continue;
+      const expMs = r.expires_at ? new Date(r.expires_at).getTime() : 0;
+      if (expMs && expMs <= now) {
+        if (r.sender_id === uid()) api.del('/messages?id=eq.' + r.id).catch(() => {});
+        continue;
       }
-      const hidden = new Set(ls.get('hiddenMsgs:' + S.coupleId, []));
-      for (const r of rows.reverse()) {
-        if (hidden.has(r.id)) continue;
-        const expMs = r.expires_at ? new Date(r.expires_at).getTime() : 0;
-        if (expMs && expMs <= now) {
-          if (r.sender_id === uid()) api.del('/messages?id=eq.' + r.id).catch(() => {});
-          continue;
-        }
-        const mine = r.sender_id === uid();
-        let displayText = '🔒 Could not open this message on this device.';
-        let kind = r.type; let surprise = false; let photoPath = '';
+      const mine = r.sender_id === uid();
+      let displayText = '🔒 Could not open this message on this device.';
+      let kind = r.type; let surprise = false; let photoPath = '';
+      if (r.type === 'voice') {
+        // Voice bytes are decrypted lazily by the renderer's fill step
+        // (and cached) — decrypting every note on every poll was part
+        // of bug #3.
+        displayText = '';
+      } else {
         try {
-          const plain = await E.openChatWire(S.myPriv, S.partnerPub, r.ciphertext, r.nonce, r.type);
-          if (r.type === 'voice') { displayText = ''; }
-          else if (typeof plain === 'string' && plain.startsWith('USPHOTO1:')) { kind = 'photo'; photoPath = plain.substring('USPHOTO1:'.length); displayText = ''; }
+          const plain = await openChatWireRetry(r.ciphertext, r.nonce, r.type);
+          if (typeof plain === 'string' && plain.startsWith('USPHOTO1:')) { kind = 'photo'; photoPath = plain.substring('USPHOTO1:'.length); displayText = ''; }
           else if (typeof plain === 'string' && plain.startsWith('USSURPRISE1:')) { surprise = true; displayText = plain.substring('USSURPRISE1:'.length); }
           else displayText = String(plain);
         } catch { /* keep the locked placeholder */ }
-        view.push({ serverId: r.id, mine, kind, displayText, photoPath, surprise, edited: r.edited, readAt: r.read_at, createdAt: r.created_at, replyToId: r.reply_to_id, reactions: reactions[r.id] || [], revealed: false });
-        if (!mine && !r.read_at && prefs().readReceiptsOff !== true) {
-          api.patch('/messages?id=eq.' + r.id, { read_at: new Date().toISOString() }).catch(() => {});
-        }
       }
-      state.messages = view;
+      view.push({
+        serverId: r.id, mine, kind, displayText, photoPath, surprise,
+        edited: r.edited, readAt: r.read_at, createdAt: r.created_at,
+        replyToId: r.reply_to_id, reactions: reactions[r.id] || [],
+        revealed: state.revealedIds.has(r.id),
+        wire: r.ciphertext, nonce: r.nonce,
+      });
+      if (!mine && !r.read_at && prefs().readReceiptsOff !== true) {
+        api.patch('/messages?id=eq.' + r.id, { read_at: new Date().toISOString() }).catch(() => {});
+      }
+    }
+    return view;
+  }
+  function mergeView(view) {
+    const byId = new Map();
+    for (const m of state.messages) byId.set(m.serverId, m);
+    for (const m of view) byId.set(m.serverId, m);
+    state.messages = [...byId.values()].sort((a, b) => a.serverId - b.serverId);
+  }
+  function updateEarlierBtn() {
+    const b = document.getElementById('c-earlier');
+    if (b) b.hidden = !state.hasEarlier;
+  }
+  async function load() {
+    // Bug #2: the partner's public key is re-fetched alongside the
+    // message poll, so a key rotation on their side heals this session
+    // within one poll cycle instead of breaking it until re-login.
+    await refreshPartnerKey();
+    try {
+      const rows = await api.get('/messages?couple_id=eq.' + S.coupleId + '&thread=eq.' + state.thread + '&order=id.desc&limit=100&select=' + MSG_SELECT);
+      if (rows.length) {
+        const oldest = rows[rows.length - 1].id;
+        if (!state.oldestId || oldest < state.oldestId) state.oldestId = oldest;
+        if (!state.earlierExhausted && rows.length === 100) state.hasEarlier = true;
+      }
+      mergeView(await buildView(rows));
       renderMessages();
+      updateEarlierBtn();
     } catch (e) { status('Loading failed: ' + e.message); }
+  }
+  /** Bug #15: page in the next 100 older messages above the loaded window. */
+  async function loadEarlier() {
+    if (state.loadingEarlier || !state.oldestId) return;
+    state.loadingEarlier = true;
+    try {
+      const rows = await api.get('/messages?couple_id=eq.' + S.coupleId + '&thread=eq.' + state.thread + '&id=lt.' + state.oldestId + '&order=id.desc&limit=100&select=' + MSG_SELECT);
+      if (rows.length) {
+        state.oldestId = rows[rows.length - 1].id;
+        mergeView(await buildView(rows));
+        renderMessages();
+      }
+      if (rows.length < 100) { state.hasEarlier = false; state.earlierExhausted = true; }
+      updateEarlierBtn();
+    } catch (e) { status('Loading earlier messages failed: ' + e.message); }
+    state.loadingEarlier = false;
   }
   function renderMessages() {
     const list = document.getElementById('chat-list');
     if (!list) return;
+    // Bug #3: skip the DOM rebuild entirely when nothing visible
+    // changed — rebuilding on every poll destroyed playing voice
+    // notes, recreated photos and yanked the scroll position.
+    const sig = chatSignature(state.messages);
+    if (sig === state.lastSig) {
+      if (state.forceBottom) { list.scrollTop = list.scrollHeight; state.forceBottom = false; }
+      return;
+    }
+    state.lastSig = sig;
+    const prevTop = list.scrollTop;
+    const prevHeight = list.scrollHeight;
+    const wasAtBottom = prevHeight - prevTop - list.clientHeight < 80;
     if (!state.messages.length) { list.innerHTML = '<p class="muted center" style="margin-top:24px">No messages here yet. Say hello. 💌</p>'; return; }
     list.innerHTML = state.messages.map((m, i) => {
       const time = new Date(m.createdAt).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
@@ -893,21 +1174,33 @@ registerScreen('chat', (param) => {
         const slot = list.querySelector('[data-voice="' + i + '"]');
         if (!slot) return;
         try {
-          const row = await api.get('/messages?id=eq.' + m.serverId + '&select=ciphertext,nonce');
-          const bytes = await E.openChatWire(S.myPriv, S.partnerPub, row[0].ciphertext, row[0].nonce, 'voice');
-          const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/webm' }));
+          // Bug #3: decrypted bytes are cached per message — no server
+          // re-fetch and no re-decrypt on later renders. Bug #5: the
+          // Blob type is sniffed from the actual container bytes,
+          // never forced to audio/webm.
+          let url = state.voiceUrls.get(m.serverId);
+          if (!url) {
+            const bytes = await openChatWireRetry(m.wire, m.nonce, 'voice');
+            url = URL.createObjectURL(new Blob([bytes], { type: sniffAudioType(bytes) }));
+            state.voiceUrls.set(m.serverId, url);
+          }
           slot.innerHTML = '';
           const a = document.createElement('audio'); a.controls = true; a.src = url; a.style.minWidth = '210px';
           slot.appendChild(a);
         } catch { slot.textContent = '🎙 This voice message could not be opened on this device.'; }
       }
     });
-    list.scrollTop = list.scrollHeight;
+    // Bug #3: keep the reading position — jump to the bottom only when
+    // the user was already there (or just sent something); when older
+    // messages were prepended, shift by the height they added.
+    if (state.forceBottom || wasAtBottom) list.scrollTop = list.scrollHeight;
+    else list.scrollTop = prevTop + (list.scrollHeight - prevHeight);
+    state.forceBottom = false;
   }
   function msgActions(i) {
     const m = state.messages[i];
     if (!m) return;
-    if (m.surprise && !m.revealed && !m.mine) { m.revealed = true; renderMessages(); return; }
+    if (m.surprise && !m.revealed && !m.mine) { m.revealed = true; state.revealedIds.add(m.serverId); renderMessages(); return; }
     const canEdit = m.mine && m.kind === 'text' && (Date.now() - new Date(m.createdAt).getTime() <= 15 * 60000);
     const sh = sheet('<h3>Message</h3>' +
       '<div class="emoji-row">' + REACTIONS.map((e) => '<button data-react="' + e + '">' + e + '</button>').join('') + '</div>' +
@@ -951,11 +1244,12 @@ registerScreen('chat', (param) => {
   renderShell();
   load();
   every(4000, load);
-  // Typing indicator fade.
-  setInterval(() => {
+  // Typing indicator fade — registered with every() (bug #14) so
+  // showScreen() clears it instead of leaking one interval per visit.
+  every(1000, async () => {
     const t = document.getElementById('chat-typing');
     if (t && S.partnerTypingUntil && Date.now() > S.partnerTypingUntil) t.textContent = '';
-  }, 1000);
+  });
   // Battery sharing while the chat is open (opt-in), about once a minute.
   if (S.me && S.me.battery_share && navigator.getBattery) {
     const sendBattery = async () => {
@@ -989,8 +1283,8 @@ registerScreen('voice', () => {
         const slot = list.querySelector('[data-vn-slot="' + b.dataset.vn + '"]');
         b.disabled = true; b.textContent = 'Opening…';
         try {
-          const bytes = await E.openChatWire(S.myPriv, S.partnerPub, r.ciphertext, r.nonce, 'voice');
-          const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/webm' }));
+          const bytes = await openChatWireRetry(r.ciphertext, r.nonce, 'voice');
+          const url = URL.createObjectURL(new Blob([bytes], { type: sniffAudioType(bytes) }));
           slot.innerHTML = ''; const a = document.createElement('audio'); a.controls = true; a.src = url; a.autoplay = true; slot.appendChild(a);
           b.textContent = 'Play';
         } catch { slot.innerHTML = '<p class="error-text small">This voice note could not be opened on this device.</p>'; b.textContent = 'Play'; }
@@ -1008,7 +1302,7 @@ registerScreen('settings', () => {
   const p = prefs();
   let inviteCode = '';
   const render = () => {
-    const pin = ls.get('pin', null);
+    const pin = ls.get(pinKey(), null);
     appEl().innerHTML = topbar('Settings', { subtitle: S.me ? S.me.display_name + ' · ' + S.me.role : '' }) +
       '<div class="screen">' +
       // Appearance
@@ -1067,8 +1361,8 @@ registerScreen('settings', () => {
       try { safety = '<label class="field">Your safety number — compare it with your partner, out loud or in person</label><p style="font-family:monospace;font-size:13px;word-break:break-all;margin:4px 0">' + esc(E.safetyNumber(S.myPub, S.partnerPub)) + '</p><p class="tiny muted">If this number ever changes without one of you signing in on a new device, someone may be impersonating a partner. Stop and check together.</p>'; }
       catch { safety = '<p class="small muted">Safety number unavailable right now.</p>'; }
     }
-    const pin = ls.get('pin', null);
-    box.innerHTML = safety +
+    const pin = ls.get(pinKey(), null);
+    box.innerHTML = (S.partnerKeyChanged ? '<p class="small" style="color:var(--danger,#b3261e)">Your partner’s message key changed recently — they may have signed in on a new device. Compare the safety number below with your partner before trusting new messages.</p>' : '') + safety +
       '<label class="field">' + (pin && pin.on ? 'Change app PIN' : 'Set an app PIN (optional)') + '</label>' +
       '<div class="btn-row"><input type="password" inputmode="numeric" maxlength="4" id="s-pin" placeholder="4 digits" style="flex:1"><button class="btn btn-soft" style="width:auto" id="s-pin-save">' + (pin && pin.on ? 'Change PIN' : 'Set PIN') + '</button></div>' +
       (pin && pin.on ? '<div style="height:8px"></div><button class="btn btn-ghost" id="s-pin-off">Remove PIN</button>' : '') +
@@ -1080,7 +1374,7 @@ registerScreen('settings', () => {
       await setPin(v); toast('PIN saved.'); renderSecurity();
     };
     const off = document.getElementById('s-pin-off');
-    if (off) off.onclick = () => { ls.del('pin'); toast('PIN removed.'); renderSecurity(); };
+    if (off) off.onclick = () => { ls.del(pinKey()); toast('PIN removed.'); renderSecurity(); };
   };
   const wireSettings = (code, setCode) => {
     document.getElementById('s-warm').onclick = () => { setTheme('warm'); render(); };
@@ -1213,7 +1507,7 @@ applyTheme();
     const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
     S.me = profs[0] || null;
   } catch { S.me = null; }
-  const pin = ls.get('pin', null);
+  const pin = ls.get(pinKey(), null);
   const proceed = () => {
     if (!S.me) { showScreen('auth'); return; }
     if (ls.get('wrappedKey:' + uid(), null)) showScreen('unlock');

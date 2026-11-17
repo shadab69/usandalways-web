@@ -77,7 +77,13 @@ async function parseResult(res, wantJson = true) {
 // ---------- Auth ----------
 export async function signUp(email, password) {
   const res = await rawFetch('/auth/v1/signup', { method: 'POST', body: { email, password }, token: '' });
-  return parseResult(res);
+  const data = await parseResult(res);
+  // Persist the session exactly like logIn() does. Without this, callers
+  // that read myUserId() right after sign-up get '' (no saved session),
+  // which used to send an empty id into the profiles insert
+  // ("invalid input syntax for type uuid: \"\"").
+  if (data && data.access_token) saveSession(data);
+  return data;
 }
 export async function logIn(email, password) {
   const res = await rawFetch('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password }, token: '' });

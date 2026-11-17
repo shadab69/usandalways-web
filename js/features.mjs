@@ -10,7 +10,11 @@ import {
   S, registerScreen, showScreen, topbar, wireBack, esc, toast, sheet, closeSheet,
   confirmDlg, every, sealText, openText, sealFileBytes, openFileBytes, e2eeReady,
   BUILTIN, rcList, uid, todayIso, initials, daysTogether, prevIsoDay,
+  cacheMyCheckin, openChatWireRetry,
 } from './app.js';
+import { latestRowPerUser, nextSpinCount, playbackDecision } from './logic.mjs';
+
+const KEYS_NOT_READY = 'Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.';
 
 function needLink(title) {
   appEl().innerHTML = topbar(title, { back: true }) +
@@ -73,6 +77,7 @@ function tttSerialize(st) { return st.board + '|' + st.turn + '|' + st.status + 
 function tttScreen() {
   if (!S.partner) return needLink('Tic Tac Toe');
   let game = null; let st = tttParse('.........|X|active|0|0'); let xPlayer = '';
+  let saving = false; // bug #9: polls must not overwrite an in-flight move
   appEl().innerHTML = topbar('Tic Tac Toe', { back: true }) +
     '<div class="screen"><p class="center muted" id="ttt-status">Loading…</p>' +
     '<div class="ttt-grid" id="ttt-grid"></div>' +
@@ -102,12 +107,18 @@ function tttScreen() {
     }
   };
   const load = async () => {
-    const row = await loadGame('tictactoe');
+    if (saving) return; // bug #9: skip this poll cycle while a move is saving
+    let row = await loadGame('tictactoe');
     if (!row) {
       xPlayer = uid();
       st = tttParse('.........|X|active|0|0');
       game = await createGame('tictactoe', { s: tttSerialize(st), x: xPlayer }, uid());
-    } else {
+      // Bug #9: if both partners created a row at the same moment,
+      // adopt the newest one so both devices play on the same row.
+      row = await loadGame('tictactoe');
+      if (row && row.id !== game.id) game = row;
+    }
+    if (row) {
       game = row;
       st = tttParse(row.state.s || '');
       xPlayer = row.state.x || '';
@@ -115,7 +126,7 @@ function tttScreen() {
     render();
   };
   const move = async (cell) => {
-    if (!game || st.status !== 'active' || st.turn !== myMark() || st.board[cell] !== '.') return;
+    if (!game || saving || st.status !== 'active' || st.turn !== myMark() || st.board[cell] !== '.') return;
     const boardArr = st.board.split('');
     boardArr[cell] = myMark();
     const board = boardArr.join('');
@@ -127,13 +138,21 @@ function tttScreen() {
     st = next;
     render();
     const turnUser = next.status === 'active' ? (next.turn === 'X' ? xPlayer : partnerId()) : uid();
-    await patchGame(game.id, { s: tttSerialize(next), x: xPlayer }, turnUser, next.status, next.status === 'won' ? (w === 'X' ? xPlayer : partnerId()) : null).catch((e) => toast(e.message));
+    saving = true;
+    try {
+      await patchGame(game.id, { s: tttSerialize(next), x: xPlayer }, turnUser, next.status, next.status === 'won' ? (w === 'X' ? xPlayer : partnerId()) : null);
+    } catch (e) { toast(e.message); }
+    saving = false;
   };
   document.getElementById('ttt-rematch').onclick = async () => {
-    if (!game) return;
+    if (!game || saving) return;
     st = { board: '.........', turn: 'X', status: 'active', scoreX: st.scoreX, scoreO: st.scoreO };
     render();
-    await patchGame(game.id, { s: tttSerialize(st), x: xPlayer }, xPlayer, 'active', null).catch((e) => toast(e.message));
+    saving = true;
+    try {
+      await patchGame(game.id, { s: tttSerialize(st), x: xPlayer }, xPlayer, 'active', null);
+    } catch (e) { toast(e.message); }
+    saving = false;
   };
   load().catch((e) => toast(e.message));
   every(3000, load);
@@ -228,6 +247,7 @@ function ludoTokenXY(player, progress, tokenIdx) {
 function ludoScreen() {
   if (!S.partner) return needLink('Ludo Together');
   let game = null; let st = Ludo.newGame(); let p0 = '';
+  let saving = false; // bug #9: polls must not overwrite an in-flight save
   const COLORS = ['#C05B2E', '#2774C8'];
   appEl().innerHTML = topbar('Ludo Together', { back: true }) +
     '<div class="screen"><p class="center muted" id="ludo-status">Loading…</p>' +
@@ -268,16 +288,25 @@ function ludoScreen() {
   };
   const save = async () => {
     if (!game) return;
-    const turnUser = st.turn === 0 ? p0 : partnerId();
-    await patchGame(game.id, { s: Ludo.serialize(st), p0 }, turnUser, st.winner >= 0 ? 'won' : 'active', st.winner >= 0 ? (st.winner === 0 ? p0 : partnerId()) : null).catch((e) => toast(e.message));
+    saving = true;
+    try {
+      const turnUser = st.turn === 0 ? p0 : partnerId();
+      await patchGame(game.id, { s: Ludo.serialize(st), p0 }, turnUser, st.winner >= 0 ? 'won' : 'active', st.winner >= 0 ? (st.winner === 0 ? p0 : partnerId()) : null);
+    } catch (e) { toast(e.message); }
+    saving = false;
   };
   const load = async () => {
-    const row = await loadGame('ludo');
+    if (saving) return; // bug #9: skip this poll cycle while a save is in flight
+    let row = await loadGame('ludo');
     if (!row) {
       p0 = uid();
       st = Ludo.newGame();
       game = await createGame('ludo', { s: Ludo.serialize(st), p0 }, uid());
-    } else { game = row; st = Ludo.parse(row.state.s || ''); p0 = row.state.p0 || ''; }
+      // Bug #9: adopt the newest row if both partners created one.
+      row = await loadGame('ludo');
+      if (row && row.id !== game.id) game = row;
+    }
+    if (row) { game = row; st = Ludo.parse(row.state.s || ''); p0 = row.state.p0 || ''; }
     render();
   };
   const doMove = async (token) => {
@@ -304,7 +333,9 @@ function ludoScreen() {
 // ================================================================ Spin the Bottle (state: {"angle","prompt","by","n"})
 function spinScreen() {
   if (!S.partner) return needLink('Spin the Bottle');
-  let game = null; let count = 0; let angle = 0; let spinning = false;
+  // Bug #10: the counter starts at -1, matching Android — a partner's
+  // first spin writes n = 0 and must not be mistaken for "no spin yet".
+  let game = null; let count = -1; let angle = 0; let spinning = false;
   appEl().innerHTML = topbar('Spin the Bottle', { back: true }) +
     '<div class="screen"><div style="text-align:center;padding-top:8px"><div class="spin-wheel" id="spin-wheel" style="font-size:150px;line-height:220px">🍾</div></div>' +
     '<p class="center" id="spin-prompt" style="font-size:16px">Loading…</p>' +
@@ -316,12 +347,14 @@ function spinScreen() {
     if (wheel) wheel.style.transform = 'rotate(' + (angle + (animate ? 1800 : 0)) + 'deg)';
   };
   const load = async () => {
+    if (spinning) return; // bug #9: don't let a poll fight an in-flight spin save
     const row = await loadGame('spin');
     if (row) {
       game = row;
       const s = row.state || {};
-      if (typeof s.n === 'number' && s.n !== count) {
-        count = s.n; angle = s.angle || 0;
+      const next = nextSpinCount(count, s.n);
+      if (next !== count) {
+        count = next; angle = s.angle || 0;
         const p = document.getElementById('spin-prompt');
         if (p) p.textContent = s.prompt || '';
         render(row.state.by !== uid());
@@ -485,6 +518,7 @@ function playbackScreen(kind) {
     '<div class="card"><label class="field" for="pb-url">Direct ' + (isMusic ? 'audio' : 'video') + ' link</label><input type="url" id="pb-url" placeholder="https://…/song.mp3">' +
     '<div style="height:10px"></div><button class="btn btn-primary" id="pb-set">Set for both of us</button>' +
     '<p class="tiny muted" style="margin:8px 0 0">Direct links only: Netflix, YouTube and other apps cannot be played together here — the same honest limit as the Android app. Music and video share one “now playing” slot, so starting one replaces the other.</p></div>' +
+    '<div class="card" id="pb-other" hidden></div>' +
     '<div class="card" id="pb-player-card" hidden>' + (isMusic ? '<audio id="pb-media" controls></audio>' : '<video id="pb-media" controls playsinline></video>') +
     '<div class="btn-row" style="margin-top:10px"><button class="btn btn-soft" id="pb-play">▶ Play for both</button><button class="btn btn-soft" id="pb-pause">⏸ Pause for both</button></div>' +
     '<p class="tiny muted" id="pb-status" style="margin:8px 0 0"></p></div><div class="grow"></div></div>';
@@ -519,7 +553,22 @@ function playbackScreen(kind) {
     if (!rows.length) return;
     const row = rows[0];
     const card = document.getElementById('pb-player-card');
-    if (!row.url) { if (card) card.hidden = true; return; }
+    const other = document.getElementById('pb-other');
+    // Bug #7: the shared row may belong to the OTHER player (music vs
+    // video). Never load the partner's video into this audio element
+    // (or vice versa) and never write state against the wrong kind.
+    const decision = playbackDecision(row, kind);
+    if (decision === 'empty') { if (card) card.hidden = true; if (other) other.hidden = true; return; }
+    if (decision === 'other') {
+      if (card) card.hidden = true;
+      if (other) {
+        other.hidden = false;
+        other.innerHTML = '<p style="margin:0">🎬 Your partner is ' + (row.kind === 'video' ? 'watching something in Watch Together' : 'listening to something in Listen Together') + ' right now.</p>' +
+          '<p class="tiny muted" style="margin:8px 0 0">Music and video share one “now playing” slot — setting a link above takes the slot over for this player.</p>';
+      }
+      return;
+    }
+    if (other) other.hidden = true;
     if (card) card.hidden = false;
     const stamp = row.updated_at + '|' + row.url + '|' + row.playing + '|' + row.position_ms;
     if (!force && stamp === appliedStamp) return;
@@ -692,7 +741,7 @@ function readScreen() {
     const file = document.getElementById('book-file').files[0];
     const statusEl = document.getElementById('book-status');
     if (!file) { toast('Please choose a .txt file.'); return; }
-    if (!e2eeReady()) { toast('Your keys are still getting ready.'); return; }
+    if (!e2eeReady()) { toast(KEYS_NOT_READY); return; }
     try {
       const text = await file.text();
       if (!text.trim()) { statusEl.textContent = 'That file appears to be empty.'; return; }
@@ -795,7 +844,7 @@ function albumScreen() {
     const file = document.getElementById('al-file').files[0];
     const statusEl = document.getElementById('al-status');
     if (!file) { toast('Please choose a photo.'); return; }
-    if (!e2eeReady()) { toast('Your keys are still getting ready.'); return; }
+    if (!e2eeReady()) { toast(KEYS_NOT_READY); return; }
     try {
       statusEl.textContent = 'Encrypting and uploading…';
       const jpeg = await downscaleJpeg(file);
@@ -855,6 +904,7 @@ function journeyScreen() {
     if (!name) { toast('Please name the place.'); return; }
     const noteText = document.getElementById('j-note').value.trim();
     const note = noteText ? await sealText(noteText) : '';
+    if (noteText && !note) { toast(KEYS_NOT_READY); return; }
     const latV = document.getElementById('j-lat').value.trim();
     const lngV = document.getElementById('j-lng').value.trim();
     try {
@@ -910,7 +960,7 @@ function bucketScreen() {
     const text = document.getElementById('b-input').value.trim();
     if (!text) { toast('Please write the dream first.'); return; }
     const sealed = await sealText(text);
-    if (!sealed) { toast('Your keys are still getting ready.'); return; }
+    if (!sealed) { toast(KEYS_NOT_READY); return; }
     try {
       await api.post('/bucket_items', { couple_id: S.coupleId, added_by: uid(), title: sealed });
       document.getElementById('b-input').value = '';
@@ -931,7 +981,7 @@ function memoriesViewScreen() {
   const decryptRow = async (r) => {
     if (r.type === 'voice') return '🎙 Voice message';
     try {
-      const plain = await E.openChatWire(S.myPriv, S.partnerPub, r.ciphertext, r.nonce, r.type);
+      const plain = await openChatWireRetry(r.ciphertext, r.nonce, r.type);
       if (typeof plain === 'string' && plain.startsWith('USPHOTO1:')) return '📷 A photo you shared';
       if (typeof plain === 'string' && plain.startsWith('USSURPRISE1:')) return '🎁 ' + plain.substring('USSURPRISE1:'.length);
       return String(plain);
@@ -984,9 +1034,10 @@ function checkinScreen() {
     if (!mood) { toast('Please pick how you feel first.'); return; }
     const noteText = document.getElementById('ci-note').value.trim();
     const note = noteText ? await sealText(noteText) : '';
-    if (noteText && !note) { toast('Your keys are still getting ready.'); return; }
+    if (noteText && !note) { toast(KEYS_NOT_READY); return; }
     try {
       await api.post('/checkins', { couple_id: S.coupleId, user_id: uid(), day: todayIso(), mood, note: note || '' }, 'resolution=merge-duplicates');
+      cacheMyCheckin(mood); // live obs (c): Home's card reflects this save immediately
       toast('Your check-in has been saved.');
       load();
     } catch (e) { toast(e.message); }
@@ -1015,11 +1066,12 @@ function conflictScreen() {
   };
   const load = async () => {
     renderQ();
-    const rows = await api.get('/conflict_answers?couple_id=eq.' + S.coupleId + '&question_id=eq.' + index + '&select=user_id,answer');
+    // Bug #4: duplicates can exist (no unique constraint), so read
+    // newest-first and take the LATEST row per user.
+    const rows = await api.get('/conflict_answers?couple_id=eq.' + S.coupleId + '&question_id=eq.' + index + '&order=id.desc&select=id,user_id,answer');
     const box = document.getElementById('cf-answers');
     if (!box) return;
-    const mine = rows.find((r) => r.user_id === uid());
-    const theirs = rows.find((r) => r.user_id !== uid());
+    const { mine, theirs } = latestRowPerUser(rows, uid());
     if (mine && theirs) {
       const myText = await openText(mine.answer);
       const theirText = await openText(theirs.answer);
@@ -1036,9 +1088,14 @@ function conflictScreen() {
     const text = document.getElementById('cf-input').value.trim();
     if (!text) { toast('Please write your answer first.'); return; }
     const sealed = await sealText(text);
-    if (!sealed) { toast('Your keys are still getting ready.'); return; }
+    if (!sealed) { toast(KEYS_NOT_READY); return; }
     try {
-      await api.post('/conflict_answers', { couple_id: S.coupleId, question_id: String(index), user_id: uid(), answer: sealed }, 'resolution=merge-duplicates');
+      // Bug #4: conflict_answers has NO unique constraint, so the old
+      // merge-duplicates upsert could never conflict and every save
+      // inserted a duplicate. Delete my previous answer(s) for this
+      // question first, then insert the new one.
+      await api.del('/conflict_answers?couple_id=eq.' + S.coupleId + '&question_id=eq.' + index + '&user_id=eq.' + uid());
+      await api.post('/conflict_answers', { couple_id: S.coupleId, question_id: String(index), user_id: uid(), answer: sealed });
       document.getElementById('cf-input').value = '';
       toast('Your answer has been saved.');
       load();
@@ -1091,7 +1148,7 @@ function giftsScreen() {
     if (!kind) { toast('Please pick a gift first.'); return; }
     const noteText = document.getElementById('g-note').value.trim();
     const note = noteText ? await sealText(noteText) : '';
-    if (noteText && !note) { toast('Your keys are still getting ready.'); return; }
+    if (noteText && !note) { toast(KEYS_NOT_READY); return; }
     try {
       await api.post('/gifts', { couple_id: S.coupleId, sender_id: uid(), kind, note: note || '' });
       document.getElementById('g-note').value = '';
@@ -1150,7 +1207,7 @@ function roomScreen() {
     const value = document.getElementById('room-input').value.trim();
     if (!value) { toast('Please write a status line first.'); return; }
     const sealed = await sealText(value);
-    if (!sealed) { toast('Your keys are still getting ready.'); return; }
+    if (!sealed) { toast(KEYS_NOT_READY); return; }
     try {
       await api.post('/room_state', { couple_id: S.coupleId, status_text: sealed, updated_by: uid() }, 'resolution=merge-duplicates');
       toast('Your status line is saved.');
