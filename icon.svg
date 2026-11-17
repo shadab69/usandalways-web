@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#FBF6EF"/>
+  <rect x="14" y="14" width="484" height="484" rx="100" fill="none" stroke="#EDDFCE" stroke-width="8"/>
+  <path d="M256 396c-8-6-150-96-150-190 0-52 40-88 86-88 28 0 52 14 64 34 12-20 36-34 64-34 46 0 86 36 86 88 0 94-142 184-150 190z" fill="#C05B2E"/>
+  <text x="256" y="468" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="40" fill="#8A7360">US &amp; Always</text>
+</svg>

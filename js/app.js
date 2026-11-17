@@ -1,0 +1,1224 @@
+// US & Always — web app core: state, vault (localStorage), theming,
+// remote config, auth, couple linking, Home, Chat, Settings.
+// Feature screens (games / together / memories / room) live in features.mjs
+// and register into `Screens`.
+
+import * as api from './api.mjs';
+import * as E from './crypto.mjs';
+import { initFeatures } from './features.mjs';
+
+// ---------------------------------------------------------------- state
+export const S = {
+  me: null,            // my profiles row
+  partner: null,       // partner profiles row or null
+  coupleId: '',
+  myPriv: null,        // Uint8Array raw X25519 private key (memory only)
+  myPub: null,         // Uint8Array raw public key
+  partnerPub: null,    // Uint8Array or null
+  screen: '',
+  screenParam: null,
+  partnerBattery: null,
+  partnerTypingUntil: 0,
+  lastEventId: 0,
+  eventsPrimed: false,
+  lastMsgIdSeen: 0,
+  msgsPrimed: false,
+  rc: null,            // remote config map (key -> parsed JSON value)
+  unlocked: false,
+};
+export const Screens = {};
+export function registerScreen(name, fn) { Screens[name] = fn; }
+
+// ---------------------------------------------------------------- storage
+const ls = {
+  get(k, d) { try { const v = localStorage.getItem('uaw.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('uaw.' + k, JSON.stringify(v)); } catch { /* storage full/blocked */ } },
+  del(k) { localStorage.removeItem('uaw.' + k); },
+};
+export { ls };
+export const uid = () => api.myUserId();
+export const prefKey = (name) => name + ':' + uid();
+export function prefs() { return ls.get(prefKey('prefs'), {}); }
+export function setPref(name, value) { const p = prefs(); p[name] = value; ls.set(prefKey('prefs'), p); }
+export function startDate() { return ls.get(prefKey('startDate'), todayIso()); }
+export function todayIso(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+export function daysTogether() {
+  const start = new Date(startDate() + 'T00:00:00');
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((now - start) / 86400000));
+}
+
+// ---------------------------------------------------------------- dom helpers
+export const appEl = () => document.getElementById('app');
+export function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+let toastTimer = null;
+export function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+export function sheet(html) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = '<div class="modal-back"><div class="modal-sheet">' + html + '</div></div>';
+  root.querySelector('.modal-back').addEventListener('click', (ev) => { if (ev.target.classList.contains('modal-back')) closeSheet(); });
+  return root.querySelector('.modal-sheet');
+}
+export function closeSheet() { document.getElementById('modal-root').innerHTML = ''; }
+export function confirmDlg(title, body, okLabel) {
+  return new Promise((resolve) => {
+    const sh = sheet('<h3>' + esc(title) + '</h3><p class="muted">' + esc(body) + '</p>' +
+      '<button class="btn btn-danger" id="cf-ok">' + esc(okLabel) + '</button>' +
+      '<button class="btn btn-ghost" id="cf-no">Cancel</button>');
+    sh.querySelector('#cf-ok').onclick = () => { closeSheet(); resolve(true); };
+    sh.querySelector('#cf-no').onclick = () => { closeSheet(); resolve(false); };
+  });
+}
+export function topbar(title, opts = {}) {
+  return '<div class="topbar">' +
+    (opts.back ? '<button class="icon-btn" id="tb-back" aria-label="Back">←</button>' : '') +
+    '<div class="title">' + esc(title) + (opts.subtitle ? '<span class="subtitle">' + esc(opts.subtitle) + '</span>' : '') + '</div>' +
+    (opts.right || '') + '</div>';
+}
+export function wireBack(target) {
+  const b = document.getElementById('tb-back');
+  if (b) b.onclick = () => showScreen(target.name, target.param);
+}
+
+// ---------------------------------------------------------------- pollers
+const pollers = new Set();
+export function every(ms, fn) {
+  const id = setInterval(() => { if (!document.hidden) fn().catch(() => {}); }, ms);
+  pollers.add(id);
+  fn().catch(() => {});
+  return id;
+}
+function stopPollers() { pollers.forEach(clearInterval); pollers.clear(); }
+
+// ---------------------------------------------------------------- navigation
+const TABS = [
+  ['home', '⌂', 'Home'], ['chat', '💬', 'Chat'], ['together', '🎵', 'Together'],
+  ['memories', '🌸', 'Memories'], ['settings', '⚙', 'Settings'],
+];
+export function showScreen(name, param) {
+  stopPollers();
+  S.screen = name; S.screenParam = param || null;
+  const bar = document.getElementById('tabbar');
+  const mainScreens = ['home', 'chat', 'together', 'memories', 'settings'];
+  const inMain = !!S.me && mainScreens.concat(['room', 'games', 'voice', 'ttt', 'ludo', 'spin', 'pet', 'playlist', 'listen', 'watch', 'draw', 'read', 'album', 'journey', 'bucket', 'memoriesView', 'checkin', 'conflict', 'gifts']).includes(name);
+  bar.hidden = !inMain;
+  if (inMain) {
+    const tabOf = { home: 'home', chat: 'chat', voice: 'chat', together: 'together', playlist: 'together', listen: 'together', watch: 'together', draw: 'together', read: 'together', memories: 'memories', album: 'memories', journey: 'memories', bucket: 'memories', memoriesView: 'memories', checkin: 'memories', conflict: 'memories', gifts: 'memories', settings: 'settings', room: 'home', games: 'together', ttt: 'together', ludo: 'together', spin: 'together', pet: 'together' };
+    bar.innerHTML = TABS.map(([n, ico, label]) =>
+      '<button data-tab="' + n + '" class="' + (tabOf[name] === n ? 'active' : '') + '"><span class="tab-ico">' + ico + '</span>' + label + '</button>').join('');
+    bar.querySelectorAll('button').forEach((b) => { b.onclick = () => showScreen(b.dataset.tab); });
+  }
+  const fn = Screens[name];
+  appEl().scrollTop = 0;
+  if (fn) fn(param);
+  else appEl().innerHTML = '<div class="screen"><p class="muted">Loading…</p></div>';
+}
+
+// ---------------------------------------------------------------- theme + remote config
+export const BUILTIN = {
+  truthDare: ['Truth: What was your first impression of your partner?', 'Dare: Send your partner a voice note singing a line of a song.', 'Truth: What small thing does your partner do that you love most?', 'Dare: Give your partner three compliments in your next message.', 'Truth: What is your favourite memory of the two of you so far?', 'Dare: Plan the next date, even a virtual one, and describe it now.', 'Truth: When did you last miss your partner the most?', 'Dare: Share a photo of where you are right now.', 'Truth: What is one dream you want the two of you to reach together?', 'Dare: Write your partner a four-line poem in the chat.', 'Truth: What meal would you cook for your partner first?', 'Dare: Hold a two-minute video-call stare contest next time you talk.', 'Truth: What song reminds you of your partner, and why?', 'Dare: Tell your partner a secret snack combination you secretly love.'],
+  conflictQuestions: ['When we disagree, what helps you feel heard the fastest?', 'What is one thing I did recently that made you feel appreciated?', 'When you need space, how would you like me to give it?', 'What topic do we avoid that we should talk about gently?', 'When you are stressed, what should I never do, and what helps?', 'What is one small promise we can make to each other this week?', 'How do you know that I am really listening to you?', 'What would a perfect ordinary day together look like for you?'],
+  giftKinds: ['Rose', 'Chocolate', 'Hug', 'Kiss', 'Love Letter', 'Star'],
+  moods: ['Amazing', 'Good', 'Okay', 'Low', 'Rough'],
+};
+export function themeMode() { return ls.get('theme', 'warm'); }
+export function applyTheme() {
+  const mode = themeMode();
+  document.documentElement.dataset.theme = mode;
+  document.querySelector('meta[name="theme-color"]').content = mode === 'dark' ? '#150D1D' : '#FBF6EF';
+  applyPaletteOverlay();
+}
+export function setTheme(mode) { ls.set('theme', mode); applyTheme(); }
+function applyPaletteOverlay() {
+  const rc = S.rc || ls.get('rcCache', null);
+  if (!rc) return;
+  const pal = rc[themeMode() === 'dark' ? 'theme_dark' : 'theme_warm'];
+  if (!pal || typeof pal !== 'object') return;
+  const root = document.documentElement;
+  for (const [token, value] of Object.entries(pal)) {
+    if (typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)) root.style.setProperty('--' + token, value);
+  }
+}
+export function rcList(key, builtin) {
+  const v = S.rc && S.rc[key];
+  if (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string')) return v;
+  return builtin;
+}
+export function rcAnnouncement() {
+  const v = S.rc && S.rc.announcement;
+  return typeof v === 'string' ? v : '';
+}
+export function rcConnectionService() {
+  const v = S.rc && S.rc.features;
+  return !(v && v.connection_service === false);
+}
+async function fetchRemoteConfig() {
+  try {
+    const rows = await api.get('/app_config?select=key,value');
+    const map = {};
+    for (const r of rows) map[r.key] = r.value;
+    S.rc = map;
+    ls.set('rcCache', map);
+    applyPaletteOverlay();
+  } catch { /* built-ins stay in effect */ }
+}
+
+// ---------------------------------------------------------------- e2ee session helpers
+export function e2eeReady() { return !!(S.myPriv && S.partnerPub && S.coupleId); }
+export async function sealText(plain) {
+  if (!e2eeReady()) return null;
+  try { return await E.sealCombined(S.myPriv, S.partnerPub, plain); } catch { return null; }
+}
+export async function openText(combined) {
+  if (!e2eeReady() || !combined) return null;
+  try { return await E.openCombined(S.myPriv, S.partnerPub, combined); } catch { return null; }
+}
+export async function sealFileBytes(fileId, bytes) {
+  if (!e2eeReady()) return null;
+  try { return await E.sealFile(S.myPriv, S.partnerPub, fileId, bytes); } catch { return null; }
+}
+export async function openFileBytes(fileId, blob) {
+  if (!e2eeReady()) return null;
+  try { return await E.openFile(S.myPriv, S.partnerPub, fileId, blob); } catch { return null; }
+}
+export async function refreshPartnerKey() {
+  if (!S.partner) { S.partnerPub = null; return; }
+  try {
+    const rows = await api.get('/user_keys?user_id=eq.' + S.partner.id + '&select=public_key');
+    S.partnerPub = rows.length ? E.b64decode(rows[0].public_key) : null;
+  } catch { S.partnerPub = null; }
+}
+async function publishMyKey() {
+  await api.post('/user_keys', { user_id: uid(), public_key: E.b64encode(S.myPub) }, 'resolution=merge-duplicates');
+}
+
+// ---------------------------------------------------------------- couple loading
+export async function loadCouple() {
+  S.coupleId = ''; S.partner = null;
+  const rows = await api.get('/couple_members?user_id=eq.' + uid() + '&select=couple_id');
+  if (!rows.length) { await refreshPartnerKey(); return; }
+  S.coupleId = rows[0].couple_id;
+  const members = await api.get('/couple_members?couple_id=eq.' + S.coupleId + '&select=user_id');
+  const partnerId = members.map((m) => m.user_id).find((x) => x !== uid());
+  if (partnerId) {
+    const profs = await api.get('/profiles?id=eq.' + partnerId + '&select=id,display_name,role,battery_share,arrival_share');
+    S.partner = profs[0] || null;
+  }
+  await refreshPartnerKey();
+}
+
+// ---------------------------------------------------------------- vibration + notifications
+export const VIB_PATTERNS = { Gentle: [150], Heartbeat: [100, 80, 100, 80, 220], Excited: [80, 40, 80, 40, 80, 40, 240] };
+export function vibPatternName() { return prefs().vibPattern || 'Gentle'; }
+export function feelTap() {
+  try { navigator.vibrate && navigator.vibrate(VIB_PATTERNS[vibPatternName()] || VIB_PATTERNS.Gentle); } catch { /* unsupported */ }
+}
+export function notify(title, body) {
+  try {
+    if (('Notification' in window) && Notification.permission === 'granted' && prefs().stayConnected !== false && rcConnectionService()) {
+      new Notification(title, { body, icon: 'icon.svg' });
+    }
+  } catch { /* notifications are best-effort while the page is open */ }
+}
+
+// ---------------------------------------------------------------- onboarding + auth
+registerScreen('onboarding', () => {
+  appEl().innerHTML =
+    '<div class="screen fill">' +
+    '<div class="grow" style="display:flex;flex-direction:column;justify-content:center;gap:14px;text-align:center">' +
+    '<div style="font-size:64px">💌</div>' +
+    '<h1 class="display">US &amp; Always</h1>' +
+    '<p class="lede">A private space for the two of you — and only the two of you.</p>' +
+    '<div class="card" style="text-align:left"><h3>🔒 Private by design</h3><p class="muted small">Your messages are locked on this device before they are sent. Nobody in between — not even the server — can read them.</p></div>' +
+    '<div class="card" style="text-align:left"><h3>🎲 Time together</h3><p class="muted small">Games, music, drawing, books and little daily rituals, shared across any distance.</p></div>' +
+    '<div class="card" style="text-align:left"><h3>🌸 Your story</h3><p class="muted small">An album, a journey and a bucket list that belong to the two of you alone.</p></div>' +
+    '</div>' +
+    '<button class="btn btn-primary" id="ob-go">Get started</button>' +
+    '</div>';
+  document.getElementById('ob-go').onclick = () => showScreen('auth');
+});
+
+registerScreen('auth', () => {
+  let mode = 'login';
+  const render = () => {
+    appEl().innerHTML =
+      '<div class="screen fill"><h1 class="display">' + (mode === 'login' ? 'Welcome back' : 'Create your account') + '</h1>' +
+      '<p class="lede">' + (mode === 'login' ? 'Sign in to open your private space.' : 'One account for you; your partner makes their own, then you link with a code.') + '</p>' +
+      (mode === 'register' ?
+        '<label class="field" for="a-name">Your name</label><input type="text" id="a-name" autocomplete="name" placeholder="Your name">' +
+        '<label class="field">You are the</label><div class="chips" id="a-roles"><button class="chip selected" data-role="Husband">Husband</button><button class="chip" data-role="Wife">Wife</button></div>' : '') +
+      '<label class="field" for="a-email">Email</label><input type="email" id="a-email" autocomplete="email" placeholder="you@example.com">' +
+      '<label class="field" for="a-pass">Password</label><input type="password" id="a-pass" autocomplete="' + (mode === 'login' ? 'current-password' : 'new-password') + '" placeholder="Your password">' +
+      '<p class="error-text" id="a-err"></p>' +
+      '<button class="btn btn-primary" id="a-go">' + (mode === 'login' ? 'Sign in' : 'Create account') + '</button>' +
+      '<button class="btn btn-ghost" id="a-swap">' + (mode === 'login' ? 'New here? Create an account' : 'Already have an account? Sign in') + '</button>' +
+      '<p class="tiny muted center">Your password is only ever sent to the sign-in service. Your message key is locked with it, here in this browser, and never leaves your device unencrypted.</p></div>';
+    let role = 'Husband';
+    const roles = document.getElementById('a-roles');
+    if (roles) roles.querySelectorAll('.chip').forEach((c) => { c.onclick = () => { roles.querySelectorAll('.chip').forEach((x) => x.classList.remove('selected')); c.classList.add('selected'); role = c.dataset.role; }; });
+    document.getElementById('a-swap').onclick = () => { mode = mode === 'login' ? 'register' : 'login'; render(); };
+    document.getElementById('a-go').onclick = async () => {
+      const email = document.getElementById('a-email').value.trim();
+      const password = document.getElementById('a-pass').value;
+      const err = document.getElementById('a-err');
+      const btn = document.getElementById('a-go');
+      err.textContent = '';
+      if (!email || !password) { err.textContent = 'Please enter your email and password.'; return; }
+      btn.disabled = true; btn.textContent = 'Please wait…';
+      try {
+        if (mode === 'register') {
+          const name = document.getElementById('a-name').value.trim();
+          if (!name) throw new Error('Please enter your name.');
+          const res = await api.signUp(email, password);
+          if (!res.access_token) await api.logIn(email, password);
+          await api.post('/profiles', { id: uid(), display_name: name, role });
+          await setupKeys(password, true);
+          toast('Your account is ready.');
+          offerPinSetup();
+        } else {
+          await api.logIn(email, password);
+          await afterLogin(password);
+        }
+      } catch (e) {
+        err.textContent = e.message || 'Something went wrong. Please try again.';
+        btn.disabled = false; btn.textContent = mode === 'login' ? 'Sign in' : 'Create account';
+      }
+    };
+  };
+  render();
+});
+
+async function setupKeys(password, fresh) {
+  const kp = E.generateKeyPair();
+  S.myPriv = kp.privateKey; S.myPub = kp.publicKey;
+  ls.set('wrappedKey:' + uid(), await E.wrapPrivateKey(kp.privateKey, password));
+  await publishMyKey();
+  S.unlocked = true;
+}
+
+async function afterLogin(password) {
+  const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+  if (!profs.length) { showScreen('profileSetup', { password }); return; }
+  S.me = profs[0];
+  const wrapped = ls.get('wrappedKey:' + uid(), null);
+  if (wrapped) {
+    try {
+      S.myPriv = await E.unwrapPrivateKey(wrapped, password);
+    } catch {
+      throw new Error('This password does not unlock the message key stored in this browser. If you changed your password elsewhere, use “Reset my key” in Settings after signing in with your old password, or clear this browser’s data and create a fresh key.');
+    }
+    // Recompute the public key from the private key.
+    S.myPub = E.publicFromPrivate(S.myPriv);
+    // If the server still holds a different public key for me (for example
+    // from another browser), republish this browser's key so my partner
+    // can read what I send from here.
+    try {
+      const rows = await api.get('/user_keys?user_id=eq.' + uid() + '&select=public_key');
+      if (!rows.length || rows[0].public_key !== E.b64encode(S.myPub)) await publishMyKey();
+    } catch { /* will retry on next load */ }
+  } else {
+    await setupKeys(password, false);
+    toast('A new message key was created for this browser. Compare safety numbers with your partner again (Settings).');
+  }
+  S.unlocked = true;
+  await enterApp();
+}
+
+registerScreen('profileSetup', (param) => {
+  appEl().innerHTML =
+    '<div class="screen fill"><h1 class="display">One last step</h1>' +
+    '<p class="lede">Tell the app who you are. Your partner will see this name.</p>' +
+    '<label class="field" for="p-name">Your name</label><input type="text" id="p-name" placeholder="Your name">' +
+    '<label class="field">You are the</label><div class="chips" id="p-roles"><button class="chip selected" data-role="Husband">Husband</button><button class="chip" data-role="Wife">Wife</button></div>' +
+    '<p class="error-text" id="p-err"></p><button class="btn btn-primary" id="p-go">Save and continue</button></div>';
+  let role = 'Husband';
+  document.querySelectorAll('#p-roles .chip').forEach((c) => { c.onclick = () => { document.querySelectorAll('#p-roles .chip').forEach((x) => x.classList.remove('selected')); c.classList.add('selected'); role = c.dataset.role; }; });
+  document.getElementById('p-go').onclick = async () => {
+    const name = document.getElementById('p-name').value.trim();
+    const err = document.getElementById('p-err');
+    if (!name) { err.textContent = 'Please enter your name.'; return; }
+    try {
+      await api.post('/profiles', { id: uid(), display_name: name, role });
+      S.me = { id: uid(), display_name: name, role, battery_share: false, arrival_share: false };
+      await setupKeys(param.password, true);
+      await enterApp();
+    } catch (e) { err.textContent = e.message; }
+  };
+});
+
+function offerPinSetup() {
+  const sh = sheet('<h3>Lock this app with a PIN?</h3><p class="muted">An optional 4-digit PIN for this browser, asked when the app opens. You can also set it later in Settings.</p>' +
+    '<label class="field" for="pin-new">PIN (4 digits)</label><input type="password" inputmode="numeric" maxlength="4" id="pin-new" class="pin-input" style="letter-spacing:.3em">' +
+    '<button class="btn btn-primary" id="pin-save">Save PIN</button><button class="btn btn-ghost" id="pin-skip">Not now</button>');
+  sh.querySelector('#pin-skip').onclick = async () => { closeSheet(); await enterApp(); };
+  sh.querySelector('#pin-save').onclick = async () => {
+    const pin = sh.querySelector('#pin-new').value.trim();
+    if (!/^\d{4}$/.test(pin)) { toast('Please enter 4 digits.'); return; }
+    await setPin(pin);
+    closeSheet();
+    await enterApp();
+  };
+}
+export async function setPin(pin) {
+  const salt = E.newSalt();
+  ls.set('pin', { salt: E.bytesToHex(salt), hash: await E.hashSecretHex(pin, salt), on: true });
+}
+export async function verifyPin(pin) {
+  const p = ls.get('pin', null);
+  if (!p || !p.on) return true;
+  const hash = await E.hashSecretHex(pin, E.hexToBytesLocal(p.salt));
+  return hash === p.hash;
+}
+registerScreen('pinlock', (param) => {
+  appEl().innerHTML =
+    '<div class="lock-wrap"><div style="font-size:52px">🔒</div><h1 class="display">US &amp; Always</h1>' +
+    '<p class="lede">Enter your PIN to open the app.</p>' +
+    '<input type="password" inputmode="numeric" maxlength="4" id="lock-pin" class="pin-input" autocomplete="off">' +
+    '<p class="error-text" id="lock-err"></p>' +
+    '<button class="btn btn-primary" id="lock-go" style="max-width:240px">Open</button></div>';
+  document.getElementById('lock-go').onclick = async () => {
+    const pin = document.getElementById('lock-pin').value.trim();
+    if (await verifyPin(pin)) { param && param.next && param.next(); }
+    else document.getElementById('lock-err').textContent = 'That PIN is not right. Please try again.';
+  };
+});
+
+registerScreen('unlock', () => {
+  appEl().innerHTML =
+    '<div class="screen fill"><h1 class="display">Welcome back</h1>' +
+    '<p class="lede">You are signed in. Enter your account password once to unlock your encrypted messages on this browser — the key never leaves this device unencrypted.</p>' +
+    '<label class="field" for="u-pass">Account password</label><input type="password" id="u-pass" autocomplete="current-password" placeholder="Your password">' +
+    '<p class="error-text" id="u-err"></p><button class="btn btn-primary" id="u-go">Unlock</button>' +
+    '<button class="btn btn-ghost" id="u-out">Sign out</button></div>';
+  document.getElementById('u-out').onclick = async () => { await api.logOut(); location.reload(); };
+  document.getElementById('u-go').onclick = async () => {
+    const password = document.getElementById('u-pass').value;
+    const err = document.getElementById('u-err');
+    try {
+      await api.logIn(S.me ? (loadSessionEmail()) : '', password).catch(() => {});
+      await afterLogin(password);
+    } catch (e) { err.textContent = e.message; }
+  };
+});
+function loadSessionEmail() {
+  const s = api.loadSession();
+  return s && s.user ? (s.user.email || '') : '';
+}
+
+// ---------------------------------------------------------------- global pollers (events + new-message notices + scheduled sends)
+let globalStarted = false;
+function startGlobalLoops() {
+  if (globalStarted) return;
+  globalStarted = true;
+  // Prime cursors so old events/messages never replay as new.
+  (async () => {
+    try {
+      if (S.coupleId) {
+        const ev = await api.get('/events?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
+        S.lastEventId = ev.length ? ev[0].id : 0;
+        const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
+        S.lastMsgIdSeen = ms.length ? ms[0].id : 0;
+      }
+    } catch { /* cursors stay 0; priming flags below still protect */ }
+    S.eventsPrimed = true; S.msgsPrimed = true;
+  })();
+  setInterval(async () => {
+    if (document.hidden || !S.me || !S.coupleId || !S.unlocked) return;
+    try {
+      const evs = await api.get('/events?couple_id=eq.' + S.coupleId + '&id=gt.' + S.lastEventId + '&order=id.asc&limit=50&select=id,sender_id,kind,payload');
+      for (const ev of evs) {
+        S.lastEventId = Math.max(S.lastEventId, ev.id);
+        if (!S.eventsPrimed || ev.sender_id === uid()) continue;
+        if (ev.kind === 'tap_to_feel') {
+          feelTap();
+          toast('💗 ' + (S.partner ? S.partner.display_name : 'Your partner') + ' is thinking of you — Tap to Feel received.');
+          notify('Tap to Feel', (S.partner ? S.partner.display_name : 'Your partner') + ' sent you a tap.');
+          const home = document.getElementById('home-live');
+          if (home) { home.classList.remove('tap-flash'); void home.offsetWidth; home.classList.add('tap-flash'); }
+        } else if (ev.kind === 'typing') {
+          S.partnerTypingUntil = Date.now() + 5000;
+          const t = document.getElementById('chat-typing');
+          if (t) t.textContent = (S.partner ? S.partner.display_name : 'Your partner') + ' is typing…';
+        } else if (ev.kind === 'battery') {
+          const pct = parseInt(ev.payload, 10);
+          if (!Number.isNaN(pct)) { S.partnerBattery = pct; const b = document.getElementById('home-battery'); if (b) b.textContent = 'Your partner’s battery: ' + pct + '%'; }
+        } else if (ev.kind === 'presence' && String(ev.payload || '').startsWith('arrival:')) {
+          const label = ev.payload.substring('arrival:'.length);
+          toast('📍 ' + (S.partner ? S.partner.display_name : 'Your partner') + ' reached ' + label + '.');
+          notify('Arrival', (S.partner ? S.partner.display_name : 'Your partner') + ' reached ' + label + '.');
+        }
+      }
+      if (S.screen !== 'chat') {
+        const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&id=gt.' + S.lastMsgIdSeen + '&order=id.asc&limit=20&select=id,sender_id');
+        for (const m of ms) {
+          S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, m.id);
+          if (S.msgsPrimed && m.sender_id !== uid()) notify('New message', (S.partner ? S.partner.display_name : 'Your partner') + ' sent you a message.');
+        }
+      } else {
+        const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
+        if (ms.length) S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, ms[0].id);
+      }
+    } catch { /* next tick retries */ }
+  }, 5000);
+  // Scheduled + surprise messages: sent while this page is open (same honest limit as Android).
+  setInterval(async () => {
+    if (document.hidden || !e2eeReady()) return;
+    const key = 'scheduled:' + S.coupleId;
+    const items = ls.get(key, []);
+    if (!items.length) return;
+    const now = Date.now();
+    const due = items.filter((i) => i.sendAtMs <= now);
+    if (!due.length) return;
+    const rest = items.filter((i) => i.sendAtMs > now);
+    for (const item of due) {
+      try {
+        const plain = await openText(item.sealed);
+        if (plain === null) continue;
+        await sendChatTextNow(item.surprise ? 'USSURPRISE1:' + plain : plain, 'main', null, 0);
+      } catch { /* leave for next tick */ }
+    }
+    ls.set(key, rest);
+    if (S.screen === 'chat') showScreen('chat', S.screenParam);
+  }, 5000);
+}
+export async function sendChatTextNow(wirePlain, thread, replyToId, expiresAtMs) {
+  const sealed = await E.sealChatText(S.myPriv, S.partnerPub, wirePlain);
+  const body = {
+    couple_id: S.coupleId, sender_id: uid(), ciphertext: sealed.wire, nonce: sealed.nonce,
+    type: 'text', thread: thread || 'main',
+    reply_to_id: replyToId || null,
+    expires_at: expiresAtMs ? new Date(expiresAtMs).toISOString() : null,
+  };
+  const rows = await api.post('/messages', body, 'return=representation');
+  return rows[0];
+}
+
+// ---------------------------------------------------------------- enter the app
+export async function enterApp() {
+  if (!S.me) {
+    const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+    S.me = profs[0] || null;
+  }
+  if (!ls.get(prefKey('startDate'), null)) ls.set(prefKey('startDate'), todayIso());
+  await loadCouple();
+  await fetchRemoteConfig();
+  startGlobalLoops();
+  showScreen('home');
+}
+
+// ---------------------------------------------------------------- Home
+registerScreen('home', () => {
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning, my love.' : hour < 17 ? 'Good afternoon, my love.' : 'Good evening, my love.';
+  const days = daysTogether();
+  const ann = rcAnnouncement();
+  const annDismissed = ls.get('announceDismissed', '');
+  const themeBtn = '<button class="icon-btn" id="h-theme" aria-label="Switch theme">' + (themeMode() === 'dark' ? '☀️' : '🌙') + '</button>';
+  let html = topbar('US & Always', { right: themeBtn });
+  html += '<div class="screen fill" id="home-live">';
+  if (ann && ann !== annDismissed) html += '<div class="announce"><span>📣 ' + esc(ann) + '</span><button id="h-ann-x">Dismiss</button></div>';
+  html += '<p class="lede" style="margin-top:6px">' + esc(greeting) + '</p>';
+  // Anniversary
+  const sd = startDate();
+  const today = new Date(); const start = new Date(sd + 'T00:00:00');
+  const annivThisYear = new Date(today.getFullYear(), start.getMonth(), start.getDate());
+  const diffDays = Math.round((annivThisYear - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+  if (diffDays === 0 && todayIso() !== sd) html += '<div class="card"><h3>🎉 Happy anniversary!</h3><p class="muted small">Today is your special day.</p></div>';
+  else if (diffDays > 0 && diffDays <= 7) html += '<div class="card"><h3>🎉 Your anniversary is coming up</h3><p class="muted small">Your anniversary is coming up on ' + annivThisYear.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) + '.</p></div>';
+  // Partner card
+  html += '<div class="card">';
+  if (S.partner) {
+    html += '<div class="flex"><div class="partner-ava">' + esc(initials(S.partner.display_name)) + '</div><div class="grow"><div style="font-size:17px;font-weight:600">' + esc(S.partner.display_name) + '</div><div class="muted small">' + esc(S.partner.role) + ' · Linked with you</div></div></div>';
+    html += '<div style="margin-top:14px" class="flex"><span class="hero-days">' + days + '</span><span class="muted">' + (days === 1 ? 'day together' : 'days together') + '</span></div>';
+    html += '<p class="small" id="home-streak" style="margin:10px 0 0">Loading your streak…</p>';
+    html += '<p class="small muted" id="home-checkin" style="margin:4px 0 0">Loading today’s check-ins…</p>';
+    html += '<p class="small muted" id="home-battery" style="margin:4px 0 0">' + (S.partnerBattery !== null ? 'Your partner’s battery: ' + S.partnerBattery + '%' : (S.partner.battery_share ? 'Your partner’s battery will appear here once they open the app with sharing on.' : 'Battery sharing is off. Turn it on in Settings if you both want it.')) + '</p>';
+    html += '<p class="tiny muted" style="margin:8px 0 0">Only your two devices can read your messages — each one is locked before it leaves your device, and nobody in between can open it.</p>';
+    html += '<div style="height:12px"></div><button class="btn btn-primary" id="h-tap">💗 Tap to Feel</button>';
+    html += '<p class="tiny muted center" id="h-tap-status" style="margin:6px 0 0"></p>';
+  } else {
+    html += '<h3>Your partner has not linked yet</h3><p class="muted small">Share your invitation code from Settings so the two of you can connect.</p>';
+    html += '<div style="margin-top:10px" class="flex"><span class="hero-days">' + days + '</span><span class="muted">' + (days === 1 ? 'day together' : 'days together') + '</span></div>';
+    html += '<div style="height:12px"></div><button class="btn btn-primary" id="h-link">Link with your partner</button>';
+  }
+  html += '</div>';
+  // Quick actions
+  html += '<div class="card"><h2 class="section" style="margin-top:0">Just the two of you</h2><div style="height:8px"></div>' +
+    '<div class="btn-row"><button class="btn btn-soft" id="h-chat">💬 Open your private chat</button></div><div style="height:10px"></div>' +
+    '<div class="btn-row"><button class="btn btn-soft" id="h-checkin">🌸 Daily check-in</button><button class="btn btn-soft" id="h-room">🏠 Open our room</button></div>' +
+    '<p class="tiny muted" style="margin:10px 0 0">You can schedule a message from the chat screen; it is sent while this page is open.</p></div>';
+  html += '<div class="grow"></div></div>';
+  appEl().innerHTML = html;
+  document.getElementById('h-theme').onclick = () => { setTheme(themeMode() === 'dark' ? 'warm' : 'dark'); showScreen('home'); };
+  const annX = document.getElementById('h-ann-x');
+  if (annX) annX.onclick = () => { ls.set('announceDismissed', ann); showScreen('home'); };
+  const linkBtn = document.getElementById('h-link');
+  if (linkBtn) linkBtn.onclick = () => showScreen('settings');
+  const tap = document.getElementById('h-tap');
+  if (tap) tap.onclick = async () => {
+    const status = document.getElementById('h-tap-status');
+    tap.disabled = true;
+    try {
+      await api.post('/events', { couple_id: S.coupleId, sender_id: uid(), kind: 'tap_to_feel', payload: '' });
+      status.textContent = 'Sent. Your partner will feel it when their app is open.';
+    } catch (e) {
+      status.textContent = 'Could not send: ' + e.message;
+    }
+    tap.disabled = false;
+  };
+  document.getElementById('h-chat').onclick = () => showScreen('chat');
+  document.getElementById('h-checkin').onclick = () => showScreen('checkin');
+  document.getElementById('h-room').onclick = () => showScreen('room');
+  if (S.partner) loadHomeLive();
+});
+export function initials(name) {
+  return String(name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+}
+async function loadHomeLive() {
+  try {
+    const today = todayIso();
+    const checkins = await api.get('/checkins?couple_id=eq.' + S.coupleId + '&day=eq.' + today + '&select=user_id,mood');
+    const mine = checkins.find((c) => c.user_id === uid());
+    const theirs = checkins.find((c) => c.user_id !== uid());
+    const ci = document.getElementById('home-checkin');
+    if (ci) ci.textContent = 'Today’s check-ins — You: ' + (mine ? mine.mood : 'Not yet') + ' · ' + (S.partner ? S.partner.display_name : 'Partner') + ': ' + (theirs ? theirs.mood : 'Not yet');
+    // Streak: days with a check-in (either partner) or a message, up to today.
+    const days = new Set(checkins.map(() => today));
+    const allCheckins = await api.get('/checkins?couple_id=eq.' + S.coupleId + '&select=day');
+    allCheckins.forEach((c) => days.add(c.day));
+    const msgs = await api.get('/messages?couple_id=eq.' + S.coupleId + '&select=created_at&order=id.desc&limit=1000');
+    msgs.forEach((m) => days.add(todayIso(new Date(m.created_at))));
+    let streak = 0; let cursor = today;
+    if (!days.has(cursor)) { cursor = prevIsoDay(cursor); }
+    while (days.has(cursor)) { streak++; cursor = prevIsoDay(cursor); }
+    const st = document.getElementById('home-streak');
+    if (st) st.textContent = streak > 0 ? '🔥 Together streak: ' + streak + (streak === 1 ? ' day' : ' days') : 'Your together streak starts with a message or a check-in.';
+  } catch { /* home still renders without live extras */ }
+}
+export function prevIsoDay(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() - 1);
+  return todayIso(d);
+}
+
+// ---------------------------------------------------------------- Chat
+const REACTIONS = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
+registerScreen('chat', (param) => {
+  if (!S.partner) {
+    appEl().innerHTML = topbar('Chat') + '<div class="screen"><div class="card"><h3>Link with your partner first</h3><p class="muted small">Your private chat opens once the two of you are linked. Create an invitation code, or enter your partner’s code, in Settings.</p></div><button class="btn btn-primary" id="c-go-settings">Go to Settings</button></div>';
+    document.getElementById('c-go-settings').onclick = () => showScreen('settings');
+    return;
+  }
+  const state = {
+    thread: (param && param.thread) || 'main',
+    messages: [],        // decrypted view rows
+    replyTo: null,       // server id being replied to
+    surprise: false,
+    recorder: null, recChunks: [], recording: false,
+    lastTypingSent: 0,
+    photoUrls: new Map(),
+  };
+  const disappearHours = () => Number(prefs().disappearHours || 0);
+  const renderShell = () => {
+    const secret = state.thread === 'secret';
+    appEl().innerHTML =
+      topbar(S.partner.display_name, {
+        subtitle: secret ? 'Secret chat · locked with its own PIN' : 'End-to-end encrypted',
+        right: '<button class="icon-btn" id="c-thread" aria-label="Switch chat">' + (secret ? '🔓' : '🔐') + '</button>',
+      }) +
+      '<div class="chat-wrap">' +
+      '<div class="notice-bar"><span id="chat-typing"></span><span class="tiny">Messages are locked on this device before they are sent.</span></div>' +
+      '<div class="chat-tools">' +
+      '<button class="chip" id="c-schedule">🕰 Schedule</button>' +
+      '<button class="chip" id="c-surprise">🎁 Surprise: ' + (state.surprise ? 'On' : 'Off') + '</button>' +
+      '<button class="chip" id="c-voice-notes">🎙 Voice notes</button>' +
+      '<button class="chip" id="c-disappear">⏳ Disappearing: ' + (disappearHours() === 0 ? 'Off' : disappearHours() + 'h') + '</button>' +
+      '</div>' +
+      '<div id="chat-pending"></div>' +
+      '<div class="chat-list" id="chat-list"><p class="muted center">Loading your messages…</p></div>' +
+      '<div class="composer"><div class="reply-bar" id="reply-bar" hidden></div>' +
+      '<div class="row1"><button class="icon-btn" id="c-photo" aria-label="Send a photo">📷</button>' +
+      '<button class="icon-btn" id="c-mic" aria-label="Record a voice message">🎙</button>' +
+      '<textarea id="c-input" rows="1" placeholder="Message…"></textarea>' +
+      '<button class="icon-btn send btn-primary" id="c-send" aria-label="Send" style="background:var(--primaryBg);color:var(--primaryText);border:0">➤</button></div>' +
+      '<p class="tiny muted" id="c-status" style="margin:4px 2px 0"></p>' +
+      '<input type="file" id="c-file" accept="image/*" hidden></div></div>';
+    wire();
+  };
+  const status = (t) => { const s = document.getElementById('c-status'); if (s) s.textContent = t || ''; };
+  const wire = () => {
+    document.getElementById('c-thread').onclick = async () => {
+      if (state.thread === 'secret') { state.thread = 'main'; renderShell(); load(); return; }
+      const ok = await ensureSecretPin();
+      if (ok) { state.thread = 'secret'; renderShell(); load(); }
+    };
+    const input = document.getElementById('c-input');
+    input.addEventListener('input', () => {
+      const now = Date.now();
+      if (now - state.lastTypingSent > 4000) {
+        state.lastTypingSent = now;
+        api.post('/events', { couple_id: S.coupleId, sender_id: uid(), kind: 'typing', payload: '' }).catch(() => {});
+      }
+    });
+    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendText(); } });
+    document.getElementById('c-send').onclick = sendText;
+    document.getElementById('c-surprise').onclick = (ev) => { state.surprise = !state.surprise; ev.target.textContent = '🎁 Surprise: ' + (state.surprise ? 'On' : 'Off'); };
+    document.getElementById('c-voice-notes').onclick = () => showScreen('voice');
+    document.getElementById('c-disappear').onclick = () => {
+      const cur = disappearHours();
+      const next = cur === 0 ? 1 : cur === 1 ? 24 : 0;
+      setPref('disappearHours', next);
+      renderShell(); load();
+      toast(next === 0 ? 'Disappearing messages are off.' : 'New messages will disappear after ' + next + (next === 1 ? ' hour.' : ' hours.'));
+    };
+    document.getElementById('c-schedule').onclick = scheduleDlg;
+    document.getElementById('c-photo').onclick = () => document.getElementById('c-file').click();
+    document.getElementById('c-file').addEventListener('change', (ev) => { const f = ev.target.files[0]; if (f) sendPhoto(f); ev.target.value = ''; });
+    document.getElementById('c-mic').onclick = toggleRecord;
+    renderPending();
+  };
+  async function ensureSecretPin() {
+    const stored = ls.get('secretPin', null);
+    const ask = (title, sub) => new Promise((resolve) => {
+      const sh = sheet('<h3>' + esc(title) + '</h3><p class="muted">' + esc(sub) + '</p><input type="password" inputmode="numeric" maxlength="4" id="sp-pin" class="pin-input" style="letter-spacing:.3em"><button class="btn btn-primary" id="sp-go">Continue</button><button class="btn btn-ghost" id="sp-no">Cancel</button>');
+      sh.querySelector('#sp-no').onclick = () => { closeSheet(); resolve(null); };
+      sh.querySelector('#sp-go').onclick = () => { const v = sh.querySelector('#sp-pin').value.trim(); closeSheet(); resolve(v); };
+    });
+    if (!stored) {
+      const pin = await ask('Set a secret-chat PIN', 'The secret chat has its own 4-digit PIN, kept only on this device.');
+      if (!pin || !/^\d{4}$/.test(pin)) { if (pin) toast('Please use 4 digits.'); return false; }
+      const salt = E.newSalt();
+      ls.set('secretPin', { salt: E.bytesToHex(salt), hash: await E.hashSecretHex(pin, salt) });
+      return true;
+    }
+    const pin = await ask('Secret chat PIN', 'Enter the secret chat’s own PIN.');
+    if (!pin) return false;
+    const hash = await E.hashSecretHex(pin, E.hexToBytesLocal(stored.salt));
+    if (hash !== stored.hash) { toast('That PIN is not right.'); return false; }
+    return true;
+  }
+  function renderPending() {
+    const box = document.getElementById('chat-pending');
+    if (!box) return;
+    const items = ls.get('scheduled:' + S.coupleId, []);
+    if (!items.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="notice-bar" style="flex-wrap:wrap">🕰 Scheduled: ' + items.map((i, idx) =>
+      '<span>' + (i.surprise ? '🎁 ' : '') + '“' + esc(i.preview || '…') + '” — ' + new Date(i.sendAtMs).toLocaleString('en-US') + ' <button data-cancel="' + idx + '">Cancel</button></span>').join('') + '</div>' +
+      '<p class="tiny muted" style="padding:0 6px">Scheduled messages are sent while this page is open.</p>';
+    box.querySelectorAll('[data-cancel]').forEach((b) => { b.onclick = () => { const arr = ls.get('scheduled:' + S.coupleId, []); arr.splice(Number(b.dataset.cancel), 1); ls.set('scheduled:' + S.coupleId, arr); renderPending(); }; });
+  }
+  async function scheduleDlg() {
+    const text = document.getElementById('c-input').value.trim();
+    if (!text) { toast('Type the message first, then tap Schedule.'); return; }
+    const sh = sheet('<h3>Schedule this message</h3><p class="muted">It will be sent while this page is open — the same honest limit as the Android app.</p>' +
+      '<label class="field">Send at</label><input type="datetime-local" id="sc-when">' +
+      '<div class="switch-row"><span class="lbl">Surprise (hidden until tapped)</span><span class="switch"><input type="checkbox" id="sc-surprise"><span class="track"></span></span></div>' +
+      '<button class="btn btn-primary" id="sc-save">Schedule</button><button class="btn btn-ghost" id="sc-no">Cancel</button>');
+    sh.querySelector('#sc-no').onclick = closeSheet;
+    sh.querySelector('#sc-save').onclick = async () => {
+      const when = sh.querySelector('#sc-when').value;
+      if (!when) { toast('Please pick a date and time.'); return; }
+      const sendAtMs = new Date(when).getTime();
+      if (sendAtMs <= Date.now()) { toast('Please pick a future time.'); return; }
+      const sealed = await sealText(text);
+      if (!sealed) { toast('Link and keys are not ready yet.'); return; }
+      const arr = ls.get('scheduled:' + S.coupleId, []);
+      arr.push({ sendAtMs, surprise: sh.querySelector('#sc-surprise').checked, sealed, preview: text.substring(0, 40) });
+      ls.set('scheduled:' + S.coupleId, arr);
+      document.getElementById('c-input').value = '';
+      closeSheet(); renderPending();
+      toast('Scheduled. Keep this page open around that time.');
+    };
+  }
+  async function sendText() {
+    const input = document.getElementById('c-input');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!e2eeReady()) { status('Your keys are still getting ready — try again in a moment.'); return; }
+    status('Sending…');
+    try {
+      const hours = disappearHours();
+      const row = await sendChatTextNow(state.surprise ? 'USSURPRISE1:' + text : text, state.thread, state.replyTo, hours ? Date.now() + hours * 3600000 : 0);
+      if (row && row.id) S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, row.id);
+      input.value = ''; state.replyTo = null; state.surprise = false;
+      renderReplyBar(); status('');
+      const chip = document.getElementById('c-surprise'); if (chip) chip.textContent = '🎁 Surprise: Off';
+      load();
+    } catch (e) { status('Could not send: ' + e.message); }
+  }
+  function renderReplyBar() {
+    const bar = document.getElementById('reply-bar');
+    if (!bar) return;
+    if (!state.replyTo) { bar.hidden = true; bar.innerHTML = ''; return; }
+    const target = state.messages.find((m) => m.serverId === state.replyTo);
+    bar.hidden = false;
+    bar.innerHTML = '<span>Replying to: “' + esc(target ? target.displayText.substring(0, 60) : 'message') + '”</span><button id="rb-x">Cancel</button>';
+    document.getElementById('rb-x').onclick = () => { state.replyTo = null; renderReplyBar(); };
+  }
+  async function toggleRecord() {
+    const btn = document.getElementById('c-mic');
+    if (state.recording) { state.recorder.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((m) => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || '';
+      state.recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      state.recChunks = [];
+      state.recorder.ondataavailable = (ev) => { if (ev.data.size) state.recChunks.push(ev.data); };
+      state.recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        state.recording = false; btn.textContent = '🎙';
+        const blob = new Blob(state.recChunks, { type: mime || 'audio/webm' });
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        if (!bytes.length) { status('That recording was empty.'); return; }
+        if (bytes.length > 2 * 1024 * 1024) { status('That voice message is too long.'); return; }
+        status('Sending voice message…');
+        try {
+          const sealed = await E.sealChatBytes(S.myPriv, S.partnerPub, bytes);
+          await api.post('/messages', { couple_id: S.coupleId, sender_id: uid(), ciphertext: sealed.wire, nonce: sealed.nonce, type: 'voice', thread: state.thread, reply_to_id: null, expires_at: null }, 'return=representation');
+          status(''); load();
+        } catch (e) { status('Could not send: ' + e.message); }
+      };
+      state.recorder.start();
+      state.recording = true; btn.textContent = '⏹';
+      status('Recording… tap ⏹ to send (up to about 2 minutes).');
+    } catch { status('Microphone access was not granted.'); }
+  }
+  async function sendPhoto(file) {
+    if (!e2eeReady()) { status('Your keys are still getting ready.'); return; }
+    status('Preparing photo…');
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+      canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.82));
+      const jpeg = new Uint8Array(await blob.arrayBuffer());
+      const fileId = E.uuid();
+      const sealed = await sealFileBytes(fileId, jpeg);
+      if (!sealed) { status('Your keys are still getting ready.'); return; }
+      const path = S.coupleId + '/media/' + fileId + '.bin';
+      status('Uploading encrypted photo…');
+      await api.storageUpload(path, sealed);
+      await sendChatTextNow('USPHOTO1:' + path, state.thread, state.replyTo, 0);
+      state.replyTo = null; renderReplyBar(); status(''); load();
+    } catch (e) { status('Photo could not be sent: ' + e.message); }
+  }
+  async function load() {
+    try {
+      const rows = await api.get('/messages?couple_id=eq.' + S.coupleId + '&thread=eq.' + state.thread + '&order=id.desc&limit=100&select=id,sender_id,ciphertext,nonce,type,reply_to_id,edited,read_at,expires_at,created_at');
+      const now = Date.now();
+      const view = [];
+      const reactions = {};
+      if (rows.length) {
+        const ids = rows.map((r) => r.id).join(',');
+        const rs = await api.get('/message_reactions?message_id=in.(' + ids + ')&select=message_id,user_id,emoji').catch(() => []);
+        rs.forEach((r) => { (reactions[r.message_id] = reactions[r.message_id] || []).push(r); });
+      }
+      const hidden = new Set(ls.get('hiddenMsgs:' + S.coupleId, []));
+      for (const r of rows.reverse()) {
+        if (hidden.has(r.id)) continue;
+        const expMs = r.expires_at ? new Date(r.expires_at).getTime() : 0;
+        if (expMs && expMs <= now) {
+          if (r.sender_id === uid()) api.del('/messages?id=eq.' + r.id).catch(() => {});
+          continue;
+        }
+        const mine = r.sender_id === uid();
+        let displayText = '🔒 Could not open this message on this device.';
+        let kind = r.type; let surprise = false; let photoPath = '';
+        try {
+          const plain = await E.openChatWire(S.myPriv, S.partnerPub, r.ciphertext, r.nonce, r.type);
+          if (r.type === 'voice') { displayText = ''; }
+          else if (typeof plain === 'string' && plain.startsWith('USPHOTO1:')) { kind = 'photo'; photoPath = plain.substring('USPHOTO1:'.length); displayText = ''; }
+          else if (typeof plain === 'string' && plain.startsWith('USSURPRISE1:')) { surprise = true; displayText = plain.substring('USSURPRISE1:'.length); }
+          else displayText = String(plain);
+        } catch { /* keep the locked placeholder */ }
+        view.push({ serverId: r.id, mine, kind, displayText, photoPath, surprise, edited: r.edited, readAt: r.read_at, createdAt: r.created_at, replyToId: r.reply_to_id, reactions: reactions[r.id] || [], revealed: false });
+        if (!mine && !r.read_at && prefs().readReceiptsOff !== true) {
+          api.patch('/messages?id=eq.' + r.id, { read_at: new Date().toISOString() }).catch(() => {});
+        }
+      }
+      state.messages = view;
+      renderMessages();
+    } catch (e) { status('Loading failed: ' + e.message); }
+  }
+  function renderMessages() {
+    const list = document.getElementById('chat-list');
+    if (!list) return;
+    if (!state.messages.length) { list.innerHTML = '<p class="muted center" style="margin-top:24px">No messages here yet. Say hello. 💌</p>'; return; }
+    list.innerHTML = state.messages.map((m, i) => {
+      const time = new Date(m.createdAt).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
+      let inner = '';
+      if (m.replyToId) {
+        const q = state.messages.find((x) => x.serverId === m.replyToId);
+        inner += '<span class="quote">' + esc(q ? (q.kind === 'photo' ? '📷 Photo' : q.displayText.substring(0, 60)) : 'Original message') + '</span>';
+      }
+      if (m.kind === 'photo') inner += '<span data-photo="' + i + '">Loading photo…</span>';
+      else if (m.kind === 'voice') inner += '<span data-voice="' + i + '">Loading voice message…</span>';
+      else if (m.surprise && !m.revealed && !m.mine) inner += '🎁 A surprise for you — tap to reveal';
+      else inner += esc(m.displayText);
+      const reacts = m.reactions.length ? '<div class="reactions">' + m.reactions.map((r) => '<span>' + esc(r.emoji) + '</span>').join('') + '</div>' : '';
+      const meta = time + (m.edited ? ' · Edited' : '') + (m.mine && m.readAt ? ' · Read' : '');
+      return '<div class="bubble-row ' + (m.mine ? 'me' : 'her') + '"><button class="bubble" data-msg="' + i + '">' + inner + '</button>' + reacts + '<div class="bubble-meta">' + esc(meta) + '</div></div>';
+    }).join('');
+    list.querySelectorAll('[data-msg]').forEach((b) => { b.onclick = () => msgActions(Number(b.dataset.msg)); });
+    // Fill photos + voice lazily.
+    state.messages.forEach(async (m, i) => {
+      if (m.kind === 'photo') {
+        const slot = list.querySelector('[data-photo="' + i + '"]');
+        if (!slot) return;
+        try {
+          let url = state.photoUrls.get(m.photoPath);
+          if (!url) {
+            const blob = await api.storageDownload(m.photoPath);
+            const plain = await openFileBytes(E.fileIdFromPath(m.photoPath), blob);
+            url = URL.createObjectURL(new Blob([plain], { type: 'image/jpeg' }));
+            state.photoUrls.set(m.photoPath, url);
+          }
+          slot.innerHTML = '<img alt="Shared photo" src="' + url + '">';
+          slot.parentElement.onclick = () => { const sh = sheet('<img class="full" alt="Shared photo" src="' + url + '"><button class="btn btn-ghost" id="pv-x">Close</button>'); sh.querySelector('#pv-x').onclick = closeSheet; };
+        } catch { slot.textContent = '📷 This photo could not be opened on this device.'; }
+      } else if (m.kind === 'voice') {
+        const slot = list.querySelector('[data-voice="' + i + '"]');
+        if (!slot) return;
+        try {
+          const row = await api.get('/messages?id=eq.' + m.serverId + '&select=ciphertext,nonce');
+          const bytes = await E.openChatWire(S.myPriv, S.partnerPub, row[0].ciphertext, row[0].nonce, 'voice');
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/webm' }));
+          slot.innerHTML = '';
+          const a = document.createElement('audio'); a.controls = true; a.src = url; a.style.minWidth = '210px';
+          slot.appendChild(a);
+        } catch { slot.textContent = '🎙 This voice message could not be opened on this device.'; }
+      }
+    });
+    list.scrollTop = list.scrollHeight;
+  }
+  function msgActions(i) {
+    const m = state.messages[i];
+    if (!m) return;
+    if (m.surprise && !m.revealed && !m.mine) { m.revealed = true; renderMessages(); return; }
+    const canEdit = m.mine && m.kind === 'text' && (Date.now() - new Date(m.createdAt).getTime() <= 15 * 60000);
+    const sh = sheet('<h3>Message</h3>' +
+      '<div class="emoji-row">' + REACTIONS.map((e) => '<button data-react="' + e + '">' + e + '</button>').join('') + '</div>' +
+      '<button class="sheet-btn" id="ma-reply">↩ Reply</button>' +
+      (canEdit ? '<button class="sheet-btn" id="ma-edit">✏ Edit (within 15 minutes)</button>' : '') +
+      '<button class="sheet-btn danger" id="ma-hide">Delete for me (this browser only)</button>' +
+      '<button class="btn btn-ghost" id="ma-x">Cancel</button>');
+    sh.querySelector('#ma-x').onclick = closeSheet;
+    sh.querySelectorAll('[data-react]').forEach((b) => { b.onclick = async () => {
+      const emoji = b.dataset.react;
+      const existing = m.reactions.find((r) => r.user_id === uid());
+      try {
+        if (existing && existing.emoji === emoji) await api.del('/message_reactions?message_id=eq.' + m.serverId + '&user_id=eq.' + uid());
+        else await api.post('/message_reactions', { message_id: m.serverId, user_id: uid(), emoji }, 'resolution=merge-duplicates');
+      } catch (e) { toast(e.message); }
+      closeSheet(); load();
+    }; });
+    sh.querySelector('#ma-reply').onclick = () => { state.replyTo = m.serverId; closeSheet(); renderReplyBar(); document.getElementById('c-input').focus(); };
+    const editBtn = sh.querySelector('#ma-edit');
+    if (editBtn) editBtn.onclick = async () => {
+      closeSheet();
+      const sh2 = sheet('<h3>Edit message</h3><textarea id="ed-text">' + esc(m.displayText) + '</textarea><button class="btn btn-primary" id="ed-save">Save edit</button><button class="btn btn-ghost" id="ed-x">Cancel</button>');
+      sh2.querySelector('#ed-x').onclick = closeSheet;
+      sh2.querySelector('#ed-save').onclick = async () => {
+        const text = sh2.querySelector('#ed-text').value.trim();
+        if (!text) return;
+        try {
+          const sealed = await E.sealChatText(S.myPriv, S.partnerPub, m.surprise ? 'USSURPRISE1:' + text : text);
+          await api.patch('/messages?id=eq.' + m.serverId, { ciphertext: sealed.wire, nonce: sealed.nonce, edited: true });
+          closeSheet(); load();
+        } catch (e) { toast(e.message); }
+      };
+    };
+    sh.querySelector('#ma-hide').onclick = () => {
+      const hidden = new Set(ls.get('hiddenMsgs:' + S.coupleId, []));
+      hidden.add(m.serverId);
+      ls.set('hiddenMsgs:' + S.coupleId, [...hidden]);
+      closeSheet(); load();
+    };
+  }
+  renderShell();
+  load();
+  every(4000, load);
+  // Typing indicator fade.
+  setInterval(() => {
+    const t = document.getElementById('chat-typing');
+    if (t && S.partnerTypingUntil && Date.now() > S.partnerTypingUntil) t.textContent = '';
+  }, 1000);
+  // Battery sharing while the chat is open (opt-in), about once a minute.
+  if (S.me && S.me.battery_share && navigator.getBattery) {
+    const sendBattery = async () => {
+      try {
+        const b = await navigator.getBattery();
+        await api.post('/events', { couple_id: S.coupleId, sender_id: uid(), kind: 'battery', payload: String(Math.round(b.level * 100)) });
+      } catch { /* battery is best-effort */ }
+    };
+    sendBattery();
+    const bt = setInterval(() => { if (S.screen === 'chat') sendBattery(); else clearInterval(bt); }, 60000);
+  }
+});
+
+// ---------------------------------------------------------------- Voice notes list
+registerScreen('voice', () => {
+  appEl().innerHTML = topbar('Voice Notes', { back: true, subtitle: 'Every voice message you two have shared' }) +
+    '<div class="screen"><p class="muted" id="vn-status">Loading your voice notes…</p><div id="vn-list"></div></div>';
+  wireBack({ name: 'chat' });
+  (async () => {
+    try {
+      const rows = await api.get('/messages?couple_id=eq.' + S.coupleId + "&type=eq.voice&order=id.desc&limit=100&select=id,sender_id,ciphertext,nonce,created_at");
+      const list = document.getElementById('vn-list');
+      const status = document.getElementById('vn-status');
+      if (!rows.length) { status.textContent = 'No voice notes yet. Record one from the chat screen.'; return; }
+      status.textContent = '';
+      list.innerHTML = rows.map((r, i) =>
+        '<div class="card"><div class="flex"><span style="font-size:22px">🎙</span><div class="grow"><div>' + (r.sender_id === uid() ? 'You' : esc(S.partner ? S.partner.display_name : 'Partner')) + '</div>' +
+        '<div class="tiny muted">' + new Date(r.created_at).toLocaleString('en-US') + '</div></div><button class="btn btn-soft" style="width:auto" data-vn="' + i + '">Play</button></div><div data-vn-slot="' + i + '"></div></div>').join('');
+      list.querySelectorAll('[data-vn]').forEach((b) => { b.onclick = async () => {
+        const r = rows[Number(b.dataset.vn)];
+        const slot = list.querySelector('[data-vn-slot="' + b.dataset.vn + '"]');
+        b.disabled = true; b.textContent = 'Opening…';
+        try {
+          const bytes = await E.openChatWire(S.myPriv, S.partnerPub, r.ciphertext, r.nonce, 'voice');
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/webm' }));
+          slot.innerHTML = ''; const a = document.createElement('audio'); a.controls = true; a.src = url; a.autoplay = true; slot.appendChild(a);
+          b.textContent = 'Play';
+        } catch { slot.innerHTML = '<p class="error-text small">This voice note could not be opened on this device.</p>'; b.textContent = 'Play'; }
+        b.disabled = false;
+      }; });
+    } catch (e) {
+      const status = document.getElementById('vn-status');
+      if (status) status.textContent = 'Loading failed: ' + e.message;
+    }
+  })();
+});
+
+// ---------------------------------------------------------------- Settings
+registerScreen('settings', () => {
+  const p = prefs();
+  let inviteCode = '';
+  const render = () => {
+    const pin = ls.get('pin', null);
+    appEl().innerHTML = topbar('Settings', { subtitle: S.me ? S.me.display_name + ' · ' + S.me.role : '' }) +
+      '<div class="screen">' +
+      // Appearance
+      '<h2 class="section">Appearance</h2><div class="card">' +
+      '<div class="btn-row"><button class="btn ' + (themeMode() === 'warm' ? 'btn-primary' : 'btn-soft') + '" id="s-warm">☀️ Warm Editorial</button>' +
+      '<button class="btn ' + (themeMode() === 'dark' ? 'btn-primary' : 'btn-soft') + '" id="s-dark">🌙 Dark Luxe</button></div>' +
+      '<p class="tiny muted" style="margin:8px 0 0">The same two designs as the app — switch any time; your choice is remembered on this device.</p></div>' +
+      // Linking
+      '<h2 class="section">Linking</h2><div class="card" id="s-link"></div>' +
+      // Relationship
+      '<h2 class="section">Your relationship</h2><div class="card">' +
+      '<label class="field" for="s-start">The day it all started</label><input type="date" id="s-start" value="' + esc(startDate()) + '">' +
+      '<div style="height:10px"></div><button class="btn btn-soft" id="s-start-save">Save start date</button></div>' +
+      // Chat privacy
+      '<h2 class="section">Chat</h2><div class="card">' +
+      '<div class="switch-row"><span class="lbl">Send read receipts</span><span class="switch"><input type="checkbox" id="s-receipts" ' + (p.readReceiptsOff === true ? '' : 'checked') + '><span class="track"></span></span></div>' +
+      '<p class="tiny muted">When on, your partner sees “Read” under messages you have opened. Turning it off stops this browser from sending receipts.</p></div>' +
+      // Sharing (opt-in)
+      '<h2 class="section">Sharing — only if you both want it</h2><div class="card">' +
+      '<div class="switch-row"><span class="lbl">Share my battery level</span><span class="switch"><input type="checkbox" id="s-battery" ' + (S.me && S.me.battery_share ? 'checked' : '') + '><span class="track"></span></span></div>' +
+      '<p class="tiny muted">While on, this browser sends your battery percentage about once a minute while the chat is open. Nothing is sent while it is off.</p>' +
+      '<h3 style="margin-top:14px">Arrival</h3>' +
+      '<p class="tiny muted">Save one place below. Your partner is never shown your coordinates — only the moment you tap “I reached”, which shares the place’s name. (On the web there is no background location checking; the tap is the honest version.)</p>' +
+      '<label class="field" for="s-arr-label">Place name</label><input type="text" id="s-arr-label" placeholder="Home">' +
+      '<div class="btn-row"><span class="grow"><label class="field" for="s-arr-lat">Latitude</label><input type="text" id="s-arr-lat" inputmode="decimal"></span><span class="grow"><label class="field" for="s-arr-lng">Longitude</label><input type="text" id="s-arr-lng" inputmode="decimal"></span></div>' +
+      '<label class="field" for="s-arr-radius">Radius (meters)</label><input type="number" id="s-arr-radius" value="150">' +
+      '<div style="height:10px"></div><div class="btn-row"><button class="btn btn-soft" id="s-arr-geo">Use my location once</button><button class="btn btn-soft" id="s-arr-save">Save place</button></div>' +
+      '<div style="height:10px"></div><button class="btn btn-primary" id="s-arr-reached">📍 I reached</button>' +
+      '<p class="tiny muted" id="s-arr-status" style="margin:8px 0 0"></p></div>' +
+      // Notifications & feel
+      '<h2 class="section">Notifications &amp; feel</h2><div class="card">' +
+      '<div class="switch-row"><span class="lbl">Stay connected while this page is open</span><span class="switch"><input type="checkbox" id="s-stay" ' + (p.stayConnected === false ? '' : 'checked') + '><span class="track"></span></span></div>' +
+      '<p class="tiny muted">While this page is open, it checks every few seconds for new messages and taps, and can show browser notifications. This is not push: when the page is closed, nothing arrives until you open it again.' + (rcConnectionService() ? '' : ' (Currently turned off by the couple’s server settings.)') + '</p>' +
+      '<div class="btn-row"><button class="btn btn-soft" id="s-notif">Allow browser notifications</button></div>' +
+      '<p class="tiny muted" id="s-notif-status" style="margin:6px 0 0"></p>' +
+      '<label class="field">Vibration pattern for taps</label><div class="chips" id="s-vib">' +
+      ['Gentle', 'Heartbeat', 'Excited'].map((v) => '<button class="chip ' + (vibPatternName() === v ? 'selected' : '') + '" data-vib="' + v + '">' + v + '</button>').join('') + '</div></div>' +
+      // Security
+      '<h2 class="section">Security</h2><div class="card" id="s-security"></div>' +
+      // Platform notes
+      '<h2 class="section">Good to know</h2><div class="card"><p class="small muted" style="margin:0">This web version has no home-screen widget — the Home tab shows the same information. Notifications and scheduled messages work while this page is open. Add this page to your home screen to open it like an app.</p></div>' +
+      // Account
+      '<h2 class="section">Account</h2><div class="card">' +
+      '<button class="btn btn-ghost" id="s-logout">Sign out</button><div style="height:10px"></div>' +
+      '<button class="btn btn-danger" id="s-wipe">Delete this browser’s local data</button>' +
+      '<p class="tiny muted" style="margin:8px 0 0">Local data includes your wrapped message key, PIN, start date and preferences stored in this browser. Your account and shared data stay on the server.</p></div>' +
+      '<div class="grow"></div></div>';
+    wireSettings(inviteCode, (code) => { inviteCode = code; });
+    renderSecurity();
+  };
+  const renderSecurity = () => {
+    const box = document.getElementById('s-security');
+    if (!box) return;
+    let safety = '<p class="small muted">Link with your partner to see your safety number.</p>';
+    if (S.partnerPub && S.myPub) {
+      try { safety = '<label class="field">Your safety number — compare it with your partner, out loud or in person</label><p style="font-family:monospace;font-size:13px;word-break:break-all;margin:4px 0">' + esc(E.safetyNumber(S.myPub, S.partnerPub)) + '</p><p class="tiny muted">If this number ever changes without one of you signing in on a new device, someone may be impersonating a partner. Stop and check together.</p>'; }
+      catch { safety = '<p class="small muted">Safety number unavailable right now.</p>'; }
+    }
+    const pin = ls.get('pin', null);
+    box.innerHTML = safety +
+      '<label class="field">' + (pin && pin.on ? 'Change app PIN' : 'Set an app PIN (optional)') + '</label>' +
+      '<div class="btn-row"><input type="password" inputmode="numeric" maxlength="4" id="s-pin" placeholder="4 digits" style="flex:1"><button class="btn btn-soft" style="width:auto" id="s-pin-save">' + (pin && pin.on ? 'Change PIN' : 'Set PIN') + '</button></div>' +
+      (pin && pin.on ? '<div style="height:8px"></div><button class="btn btn-ghost" id="s-pin-off">Remove PIN</button>' : '') +
+      '<p class="tiny muted" style="margin:8px 0 0">The PIN is stored only as a one-way hash in this browser. Your message private key itself is encrypted under your account password and is never sent anywhere.</p>';
+    const save = document.getElementById('s-pin-save');
+    if (save) save.onclick = async () => {
+      const v = document.getElementById('s-pin').value.trim();
+      if (!/^\d{4}$/.test(v)) { toast('Please enter 4 digits.'); return; }
+      await setPin(v); toast('PIN saved.'); renderSecurity();
+    };
+    const off = document.getElementById('s-pin-off');
+    if (off) off.onclick = () => { ls.del('pin'); toast('PIN removed.'); renderSecurity(); };
+  };
+  const wireSettings = (code, setCode) => {
+    document.getElementById('s-warm').onclick = () => { setTheme('warm'); render(); };
+    document.getElementById('s-dark').onclick = () => { setTheme('dark'); render(); };
+    document.getElementById('s-start-save').onclick = () => {
+      const v = document.getElementById('s-start').value;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { ls.set(prefKey('startDate'), v); toast('Start date saved.'); }
+      else toast('Please pick a valid date.');
+    };
+    document.getElementById('s-receipts').onchange = (ev) => setPref('readReceiptsOff', !ev.target.checked);
+    document.getElementById('s-stay').onchange = (ev) => setPref('stayConnected', ev.target.checked);
+    document.getElementById('s-battery').onchange = async (ev) => {
+      try {
+        await api.patch('/profiles?id=eq.' + uid(), { battery_share: ev.target.checked });
+        if (S.me) S.me.battery_share = ev.target.checked;
+        toast(ev.target.checked ? 'Battery sharing is on.' : 'Battery sharing is off.');
+      } catch (e) { toast(e.message); ev.target.checked = !ev.target.checked; }
+    };
+    const notifStatus = () => {
+      const el = document.getElementById('s-notif-status');
+      if (el) el.textContent = ('Notification' in window) ? 'Browser notifications: ' + Notification.permission + '.' : 'This browser does not support notifications.';
+    };
+    notifStatus();
+    document.getElementById('s-notif').onclick = async () => {
+      if ('Notification' in window) { await Notification.requestPermission(); notifStatus(); }
+    };
+    document.querySelectorAll('#s-vib [data-vib]').forEach((b) => { b.onclick = () => { setPref('vibPattern', b.dataset.vib); feelTap(); render(); }; });
+    // Arrival
+    const arrStatus = (t) => { const el = document.getElementById('s-arr-status'); if (el) el.textContent = t; };
+    (async () => {
+      try {
+        const rows = await api.get('/arrival_places?user_id=eq.' + uid() + '&select=label,lat,lng,radius_m&order=id.desc&limit=1');
+        if (rows.length) {
+          document.getElementById('s-arr-label').value = rows[0].label || '';
+          document.getElementById('s-arr-lat').value = rows[0].lat ?? '';
+          document.getElementById('s-arr-lng').value = rows[0].lng ?? '';
+          document.getElementById('s-arr-radius').value = rows[0].radius_m || 150;
+          arrStatus('Saved place: ' + (rows[0].label || ''));
+        }
+      } catch { /* arrival is optional */ }
+    })();
+    document.getElementById('s-arr-geo').onclick = () => {
+      if (!navigator.geolocation) { arrStatus('This browser cannot share a location.'); return; }
+      arrStatus('Reading your location once…');
+      navigator.geolocation.getCurrentPosition((pos) => {
+        document.getElementById('s-arr-lat').value = pos.coords.latitude.toFixed(6);
+        document.getElementById('s-arr-lng').value = pos.coords.longitude.toFixed(6);
+        arrStatus('Location filled in. Tap “Save place” to keep it.');
+      }, () => arrStatus('Location was not available. You can type the coordinates instead.'), { timeout: 10000 });
+    };
+    document.getElementById('s-arr-save').onclick = async () => {
+      const label = document.getElementById('s-arr-label').value.trim();
+      const lat = parseFloat(document.getElementById('s-arr-lat').value);
+      const lng = parseFloat(document.getElementById('s-arr-lng').value);
+      const radius = parseInt(document.getElementById('s-arr-radius').value, 10) || 150;
+      if (!label || Number.isNaN(lat) || Number.isNaN(lng)) { arrStatus('Please add a name and coordinates first.'); return; }
+      try {
+        await api.patch('/profiles?id=eq.' + uid(), { arrival_share: true });
+        if (S.me) S.me.arrival_share = true;
+        await api.del('/arrival_places?user_id=eq.' + uid());
+        await api.post('/arrival_places', { user_id: uid(), label, lat, lng, radius_m: radius });
+        arrStatus('Saved. Your partner will only ever see the place name when you tap “I reached”.');
+      } catch (e) { arrStatus('Could not save: ' + e.message); }
+    };
+    document.getElementById('s-arr-reached').onclick = async () => {
+      const label = document.getElementById('s-arr-label').value.trim();
+      if (!S.coupleId) { arrStatus('Link with your partner first.'); return; }
+      if (!label) { arrStatus('Save a place first, so the message has its name.'); return; }
+      try {
+        await api.post('/events', { couple_id: S.coupleId, sender_id: uid(), kind: 'presence', payload: 'arrival:' + label });
+        arrStatus('Sent — your partner will see that you reached ' + label + ' when their app is open.');
+      } catch (e) { arrStatus('Could not send: ' + e.message); }
+    };
+    // Linking box
+    const linkBox = document.getElementById('s-link');
+    if (S.partner) {
+      linkBox.innerHTML = '<p style="margin:0">💞 You are linked with <strong>' + esc(S.partner.display_name) + '</strong>.</p>' +
+        '<p class="tiny muted">Your chat is protected with end-to-end encryption. Only the two of you can ever be in this couple.</p>' +
+        '<button class="btn btn-danger" id="s-unlink">Unlink from my partner</button>';
+      document.getElementById('s-unlink').onclick = async () => {
+        const ok = await confirmDlg('Unlink from your partner?', 'This ends the couple link for both of you and removes the shared couple space. This cannot be undone.', 'Unlink');
+        if (!ok) return;
+        try { await api.rpc('unlink_couple'); toast('You have been unlinked.'); await loadCouple(); render(); }
+        catch (e) { toast(e.message); }
+      };
+    } else {
+      linkBox.innerHTML =
+        '<p class="small" style="margin-top:0">One of you creates an invitation code; the other enters it. Codes last 24 hours, and a couple always has exactly two people.</p>' +
+        (code ? '<div class="card" style="background:var(--surfaceSoft);text-align:center"><div class="tiny muted">Your invitation code</div><div style="font-family:monospace;font-size:30px;letter-spacing:.2em">' + esc(code) + '</div><p class="tiny muted">Share it with your partner privately.</p></div>' : '<button class="btn btn-primary" id="s-invite">Create my invitation code</button>') +
+        '<label class="field" for="s-join">Partner’s invitation code</label><input type="text" id="s-join" placeholder="e.g. AB12CD34" style="text-transform:uppercase">' +
+        '<div style="height:10px"></div><button class="btn btn-soft" id="s-join-go">Link with this code</button>' +
+        '<p class="error-text" id="s-link-err"></p>';
+      const create = document.getElementById('s-invite');
+      if (create) create.onclick = async () => {
+        create.disabled = true;
+        try { const c = await api.rpc('create_invite'); setCode(typeof c === 'string' ? c : String(c)); render(); }
+        catch (e) { document.getElementById('s-link-err').textContent = e.message; create.disabled = false; }
+      };
+      document.getElementById('s-join-go').onclick = async () => {
+        const codeIn = document.getElementById('s-join').value.trim().toUpperCase();
+        const err = document.getElementById('s-link-err');
+        if (!codeIn) { err.textContent = 'Please enter the code.'; return; }
+        try {
+          await api.rpc('join_with_code', { p_code: codeIn });
+          toast('You are linked! 💞');
+          await loadCouple();
+          render();
+        } catch (e) { err.textContent = e.message; }
+      };
+    }
+    document.getElementById('s-logout').onclick = async () => { await api.logOut(); location.reload(); };
+    document.getElementById('s-wipe').onclick = async () => {
+      const ok = await confirmDlg('Delete this browser’s local data?', 'Your wrapped message key, PIN, start date and preferences in this browser will be removed. You will need your account password to unlock messages here again.', 'Delete local data');
+      if (!ok) return;
+      Object.keys(localStorage).filter((k) => k.startsWith('uaw.')).forEach((k) => localStorage.removeItem(k));
+      await api.logOut();
+      location.reload();
+    };
+  };
+  render();
+});
+
+// ---------------------------------------------------------------- boot
+initFeatures();
+applyTheme();
+(async () => {
+  const session = api.loadSession();
+  if (!session) { showScreen('onboarding'); return; }
+  try {
+    const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+    S.me = profs[0] || null;
+  } catch { S.me = null; }
+  const pin = ls.get('pin', null);
+  const proceed = () => {
+    if (!S.me) { showScreen('auth'); return; }
+    if (ls.get('wrappedKey:' + uid(), null)) showScreen('unlock');
+    else showScreen('auth');
+  };
+  if (pin && pin.on) showScreen('pinlock', { next: proceed });
+  else proceed();
+})();
