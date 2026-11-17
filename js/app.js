@@ -533,10 +533,12 @@ registerScreen('unlock', () => {
   document.getElementById('u-go').onclick = async () => {
     const password = document.getElementById('u-pass').value;
     const err = document.getElementById('u-err');
+    const btn = document.getElementById('u-go');
+    btn.disabled = true; btn.textContent = 'Unlocking…'; err.textContent = '';
     try {
       await api.logIn(S.me ? (loadSessionEmail()) : '', password).catch(() => {});
       await afterLogin(password);
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { err.textContent = e.message; btn.disabled = false; btn.textContent = 'Unlock'; }
   };
 });
 function loadSessionEmail() {

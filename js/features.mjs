@@ -497,11 +497,14 @@ function playlistScreen() {
     const title = document.getElementById('pl-title').value.trim();
     const url = document.getElementById('pl-url').value.trim();
     if (!url) { toast('Please paste a link.'); return; }
+    const btn = document.getElementById('pl-add');
+    btn.disabled = true; btn.textContent = 'Adding…';
     try {
       await api.post('/playlist_items', { couple_id: S.coupleId, added_by: uid(), title, url });
       document.getElementById('pl-title').value = ''; document.getElementById('pl-url').value = '';
-      load();
+      await load();
     } catch (e) { toast(e.message); }
+    btn.disabled = false; btn.textContent = 'Add to our playlist';
   };
   load().catch((e) => toast(e.message));
   every(5000, load);
@@ -961,11 +964,14 @@ function bucketScreen() {
     if (!text) { toast('Please write the dream first.'); return; }
     const sealed = await sealText(text);
     if (!sealed) { toast(KEYS_NOT_READY); return; }
+    const btn = document.getElementById('b-add');
+    btn.disabled = true; btn.textContent = 'Adding…';
     try {
       await api.post('/bucket_items', { couple_id: S.coupleId, added_by: uid(), title: sealed });
       document.getElementById('b-input').value = '';
-      load();
+      await load();
     } catch (e) { toast(e.message); }
+    btn.disabled = false; btn.textContent = 'Add to our list';
   };
   load().catch((e) => toast(e.message));
   every(8000, load);
