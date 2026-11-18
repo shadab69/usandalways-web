@@ -1226,36 +1226,53 @@ function journeyScreen() {
 function bucketScreen() {
   if (!S.partner) return needLink('Bucket List');
   appEl().innerHTML = topbar('Bucket List', { back: true, subtitle: 'Things you want to do together one day' }) +
-    '<div class="screen"><div id="b-list"><p class="muted">Loading your bucket list…</p></div>' +
+    '<div class="screen"><div id="b-list"><p class="muted">Loading your bucket list\u2026</p></div>' +
     '<div class="card"><label class="field" for="b-input">Something to dream about</label><input type="text" id="b-input" placeholder="Watch the sunrise at the Taj Mahal">' +
     '<div style="height:10px"></div><button class="btn btn-primary" id="b-add">Add to our list</button></div><div class="grow"></div></div>';
   wireBack({ name: 'memories' });
-  const load = async () => {
-    const rows = await api.get('/bucket_items?couple_id=eq.' + S.coupleId + '&order=id.asc&select=id,title,done,done_at,added_by');
+  // Titles are decrypted once into this cache; taps update the screen
+  // instantly and the save travels in the background (no full reload
+  // wait for the strikethrough or the delete to show).
+  let cache = null;
+  const render = () => {
     const box = document.getElementById('b-list');
-    if (!box) return;
-    if (!rows.length) { box.innerHTML = '<p class="muted">Nothing here yet. Dream the first one below.</p>'; return; }
+    if (!box || !cache) return;
+    if (!cache.length) { box.innerHTML = '<p class="muted">Nothing here yet. Dream the first one below.</p>'; return; }
     box.innerHTML = '';
-    for (const r of rows) {
-      const title = (await openText(r.title)) || '🔒 Could not open this item on this device.';
+    for (const r of cache) {
       const div = document.createElement('div');
       div.className = 'list-row';
-      div.innerHTML = '<span style="font-size:20px">' + (r.done ? '✅' : '✨') + '</span><div class="grow"><div' + (r.done ? ' style="text-decoration:line-through"' : '') + '>' + esc(title) + '</div>' +
+      div.innerHTML = '<span style="font-size:20px">' + (r.done ? '\u2705' : '\u2728') + '</span><div class="grow"><div' + (r.done ? ' style="text-decoration:line-through"' : '') + '>' + esc(r.title) + '</div>' +
         '<div class="tiny muted">' + (r.done && r.done_at ? 'Done ' + new Date(r.done_at).toLocaleDateString('en-US') : (r.added_by === uid() ? 'Added by you' : 'Added by ' + esc(S.partner.display_name))) + '</div></div>' +
-        '<button class="btn btn-soft" style="width:auto" data-toggle="' + r.id + '" data-done="' + r.done + '">' + (r.done ? 'Undo' : 'Done') + '</button>' +
+        '<button class="btn btn-soft" style="width:auto" data-toggle="' + r.id + '">' + (r.done ? 'Undo' : 'Done') + '</button>' +
         '<button class="btn btn-ghost" style="width:auto" data-del="' + r.id + '">Delete</button>';
       box.appendChild(div);
     }
-    box.querySelectorAll('[data-toggle]').forEach((b) => { b.onclick = async () => {
-      const done = b.dataset.done !== 'true';
-      await api.patch('/bucket_items?id=eq.' + b.dataset.toggle, { done, done_at: done ? new Date().toISOString() : null }).catch((e) => toast(e.message));
-      load();
+    box.querySelectorAll('[data-toggle]').forEach((b) => { b.onclick = () => {
+      const r = cache.find((x) => String(x.id) === String(b.dataset.toggle));
+      if (!r) return;
+      r.done = !r.done;
+      r.done_at = r.done ? new Date().toISOString() : null;
+      render();
+      api.patch('/bucket_items?id=eq.' + r.id, { done: r.done, done_at: r.done_at })
+        .catch((e) => { toast(e.message); load(); });
     }; });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = async () => {
       if (!await confirmDlg('Remove this dream?', 'It will be removed from your shared bucket list for both of you.', 'Remove')) return;
-      await api.del('/bucket_items?id=eq.' + b.dataset.del).catch((e) => toast(e.message));
-      load();
+      cache = cache.filter((x) => String(x.id) !== String(b.dataset.del));
+      render();
+      api.del('/bucket_items?id=eq.' + b.dataset.del)
+        .catch((e) => { toast(e.message); load(); });
     }; });
+  };
+  const load = async () => {
+    const rows = await api.get('/bucket_items?couple_id=eq.' + S.coupleId + '&order=id.asc&select=id,title,done,done_at,added_by');
+    const fresh = [];
+    for (const r of rows) {
+      fresh.push({ id: r.id, title: (await openText(r.title)) || '\U0001F512 Could not open this item on this device.', done: r.done, done_at: r.done_at, added_by: r.added_by });
+    }
+    cache = fresh;
+    render();
   };
   document.getElementById('b-add').onclick = async () => {
     const text = document.getElementById('b-input').value.trim();
@@ -1263,7 +1280,7 @@ function bucketScreen() {
     const sealed = await sealText(text);
     if (!sealed) { toast(KEYS_NOT_READY); return; }
     const btn = document.getElementById('b-add');
-    btn.disabled = true; btn.textContent = 'Adding…';
+    btn.disabled = true; btn.textContent = 'Adding\u2026';
     try {
       await api.post('/bucket_items', { couple_id: S.coupleId, added_by: uid(), title: sealed });
       document.getElementById('b-input').value = '';

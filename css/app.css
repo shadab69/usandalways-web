@@ -629,6 +629,6 @@ html[data-theme="cream"] .hb-row .cream-marker, html[data-theme="bento"] .hb-row
   cursor: pointer; font-family: inherit; flex: none;
 }
 html[data-theme="cream"] .hb-act, html[data-theme="bento"] .hb-act {
-  background: none; border: 0; font-size: 16px; line-height: 1; padding: 10px 6px;
+  background: none; border: 0; font-size: 16px; line-height: 1; padding: 12px 9px;
   cursor: pointer; color: var(--muted); flex: none;
 }

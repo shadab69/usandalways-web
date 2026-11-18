@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.20';
+const BUILD_ID = '2026-11-18.21';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -1157,49 +1157,69 @@ async function loadHomeBucket() {
 /** The FULL bucket list on Home (the user asked for the whole list and
  * full add / edit / done / delete right here, not behind a "See all"):
  * same bucket_items table and sealed titles as the Bucket List screen,
- * so both partners see and change the same list. Undone dreams first. */
+ * so both partners see and change the same list. Undone dreams first.
+ * Titles are decrypted ONCE into a cache and every tap updates the
+ * screen instantly (optimistic) — the save travels in the background,
+ * so marking done or deleting never waits on a full list reload. */
+let homeBucketCache = null; // [{id, title (plain), done, done_at, added_by}]
 async function loadHomeBucketList() {
   const box = document.getElementById('home-bucket-list');
   if (!box || !S.partner) return;
   try {
     const rows = await api.get('/bucket_items?couple_id=eq.' + S.coupleId + '&order=id.asc&select=id,title,done,done_at,added_by');
-    const sorted = rows.filter((r) => !r.done).concat(rows.filter((r) => r.done));
-    if (!sorted.length) {
-      box.innerHTML = '<p class="cream-row-sub" style="padding:12px 0">No dreams yet — add your first one below.</p>';
-      return;
+    const cache = [];
+    for (const r of rows) {
+      cache.push({ id: r.id, title: (await openText(r.title)) || '\U0001F512 Could not open this item on this device.', done: r.done, done_at: r.done_at, added_by: r.added_by });
     }
-    box.innerHTML = '';
-    for (const r of sorted) {
-      const title = (await openText(r.title)) || '🔒 Could not open this item on this device.';
-      const div = document.createElement('div');
-      div.className = 'cream-row hb-row';
-      div.innerHTML = '<button class="cream-marker' + (r.done ? ' done' : '') + '" data-hb-toggle="' + r.id + '" data-done="' + r.done + '" aria-label="' + (r.done ? 'Mark as not done' : 'Mark as done') + '">' + (r.done ? '✓' : '') + '</button>' +
-        '<span class="cream-row-text"><span class="cream-row-name"' + (r.done ? ' style="text-decoration:line-through"' : '') + '>' + esc(title) + '</span>' +
-        '<span class="cream-row-sub">' + (r.done && r.done_at ? 'Done ' + new Date(r.done_at).toLocaleDateString('en-US') : (r.added_by === uid() ? 'Added by you' : 'Added by ' + esc(S.partner.display_name))) + '</span></span>' +
-        '<button class="hb-act" data-hb-edit="' + r.id + '" aria-label="Edit this dream">✎</button>' +
-        '<button class="hb-act" data-hb-del="' + r.id + '" aria-label="Delete this dream">🗑</button>';
-      box.appendChild(div);
-    }
-    box.querySelectorAll('[data-hb-toggle]').forEach((b) => { b.onclick = async () => {
-      const done = b.dataset.done !== 'true';
-      await api.patch('/bucket_items?id=eq.' + b.dataset.hbToggle, { done, done_at: done ? new Date().toISOString() : null }).catch((e) => toast(e.message));
-      loadHomeBucketList();
-    }; });
-    box.querySelectorAll('[data-hb-del]').forEach((b) => { b.onclick = async () => {
-      if (!await confirmDlg('Remove this dream?', 'It will be removed from your shared bucket list for both of you.', 'Remove')) return;
-      await api.del('/bucket_items?id=eq.' + b.dataset.hbDel).catch((e) => toast(e.message));
-      loadHomeBucketList();
-    }; });
-    box.querySelectorAll('[data-hb-edit]').forEach((b) => { b.onclick = () => editHomeBucketItem(b.dataset.hbEdit, sorted); });
+    homeBucketCache = cache;
+    renderHomeBucketList();
   } catch { /* keep the placeholder */ }
 }
+function renderHomeBucketList() {
+  const box = document.getElementById('home-bucket-list');
+  if (!box || !homeBucketCache) return;
+  const sorted = homeBucketCache.filter((r) => !r.done).concat(homeBucketCache.filter((r) => r.done));
+  if (!sorted.length) {
+    box.innerHTML = '<p class="cream-row-sub" style="padding:12px 0">No dreams yet \u2014 add your first one below.</p>';
+    return;
+  }
+  box.innerHTML = '';
+  for (const r of sorted) {
+    const div = document.createElement('div');
+    div.className = 'cream-row hb-row';
+    div.innerHTML = '<button class="cream-marker' + (r.done ? ' done' : '') + '" data-hb-toggle="' + r.id + '" aria-label="' + (r.done ? 'Mark as not done' : 'Mark as done') + '">' + (r.done ? '\u2713' : '') + '</button>' +
+      '<span class="cream-row-text"><span class="cream-row-name"' + (r.done ? ' style="text-decoration:line-through"' : '') + '>' + esc(r.title) + '</span>' +
+      '<span class="cream-row-sub">' + (r.done && r.done_at ? 'Done ' + new Date(r.done_at).toLocaleDateString('en-US') : (r.added_by === uid() ? 'Added by you' : 'Added by ' + esc(S.partner.display_name))) + '</span></span>' +
+      '<button class="hb-act" data-hb-edit="' + r.id + '" aria-label="Edit this dream">\u270E</button>' +
+      '<button class="hb-act" data-hb-del="' + r.id + '" aria-label="Delete this dream">\U0001F5D1</button>';
+    box.appendChild(div);
+  }
+  box.querySelectorAll('[data-hb-toggle]').forEach((b) => { b.onclick = () => toggleHomeBucket(b.dataset.hbToggle); });
+  box.querySelectorAll('[data-hb-del]').forEach((b) => { b.onclick = () => deleteHomeBucket(b.dataset.hbDel); });
+  box.querySelectorAll('[data-hb-edit]').forEach((b) => { b.onclick = () => editHomeBucketItem(b.dataset.hbEdit); });
+}
+function toggleHomeBucket(id) {
+  const r = (homeBucketCache || []).find((x) => String(x.id) === String(id));
+  if (!r) return;
+  r.done = !r.done;
+  r.done_at = r.done ? new Date().toISOString() : null;
+  renderHomeBucketList(); // instant \u2014 no reload wait
+  api.patch('/bucket_items?id=eq.' + r.id, { done: r.done, done_at: r.done_at })
+    .catch((e) => { toast(e.message); loadHomeBucketList(); });
+}
+async function deleteHomeBucket(id) {
+  if (!await confirmDlg('Remove this dream?', 'It will be removed from your shared bucket list for both of you.', 'Remove')) return;
+  homeBucketCache = (homeBucketCache || []).filter((x) => String(x.id) !== String(id));
+  renderHomeBucketList(); // instant
+  api.del('/bucket_items?id=eq.' + id)
+    .catch((e) => { toast(e.message); loadHomeBucketList(); });
+}
 /** Edit one Home bucket item's title (sealed again before saving). */
-async function editHomeBucketItem(id, rows) {
-  const row = rows.find((r) => String(r.id) === String(id));
+function editHomeBucketItem(id) {
+  const row = (homeBucketCache || []).find((r) => String(r.id) === String(id));
   if (!row) return;
-  const current = (await openText(row.title)) || '';
   const sh = sheet('<h3>Edit this dream</h3><label class="field" for="hb-edit-input">Dream</label>' +
-    '<input type="text" id="hb-edit-input" value="' + esc(current) + '">' +
+    '<input type="text" id="hb-edit-input" value="' + esc(row.title) + '">' +
     '<div style="height:10px"></div><button class="btn btn-primary" id="hb-edit-save">Save</button>' +
     '<button class="btn btn-ghost" id="hb-edit-cancel">Cancel</button>');
   sh.querySelector('#hb-edit-cancel').onclick = () => closeSheet();
@@ -1207,12 +1227,12 @@ async function editHomeBucketItem(id, rows) {
     const text = sh.querySelector('#hb-edit-input').value.trim();
     if (!text) { toast('Please write the dream first.'); return; }
     const sealed = await sealText(text);
-    if (!sealed) { toast('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
-    try {
-      await api.patch('/bucket_items?id=eq.' + id, { title: sealed });
-      closeSheet();
-      loadHomeBucketList();
-    } catch (e) { toast(e.message); }
+    if (!sealed) { toast('Your partner\u2019s message key isn\u2019t available yet \u2014 ask your partner to open the app once, then try again.'); return; }
+    row.title = text;
+    closeSheet();
+    renderHomeBucketList(); // instant
+    api.patch('/bucket_items?id=eq.' + row.id, { title: sealed })
+      .catch((e) => { toast(e.message); loadHomeBucketList(); });
   };
 }
 /** Fills the cream Tap to Feel sub-line with the real last tap (events table). */
