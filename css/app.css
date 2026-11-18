@@ -655,3 +655,16 @@ html[data-theme="cream"] .hb-row .cream-row-name, html[data-theme="bento"] .hb-r
 /* Ludo tokens are ~29px — below a comfortable tap target. An invisible
    halo grows the tappable area without changing the look. */
 .ludo-token::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }
+
+/* No browser-default tap flash anywhere (build .27): the blue/grey
+   square Chrome paints on hold is replaced by the app's own press
+   feedback. Long-press must not select text or open the browser's
+   callout on app controls either — inputs keep normal selection. */
+* { -webkit-tap-highlight-color: transparent; }
+button, .bubble, .bubble-menu, .cream-row, .hub-row, .list-row, .switch, .switch-row,
+#tabbar, .sheet-btn, .ludo-token, .ttt-cell, .cream-marker, .hb-act, .cream-ava, .partner-ava {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, textarea { user-select: text; -webkit-user-select: text; }
