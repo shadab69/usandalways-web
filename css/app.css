@@ -37,6 +37,19 @@ html[data-theme="cream"] {
   --sans: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
+/* Bento Grid: light grey stage, white tiles with soft shadows, vivid
+   tile colours, near-black primary and pill tab bar. The design the
+   user finally chose on 2026-11-18 ("bento grid final kro"). */
+html[data-theme="bento"] {
+  --bg:#ECECF0; --surface:#FFFFFF; --surfaceSoft:#E2E2EA; --ink:#17171C; --muted:#8B8B96;
+  --accent:#6C7CFF; --accentInk:#4A5BE0; --onAccent:#FFFFFF; --border:#DEDEE6; --borderSoft:#E7E7ED;
+  --navBg:#17171C; --navBorder:#17171C; --bubbleMeStart:#17171C; --bubbleMeEnd:#17171C; --bubbleMeText:#FFFFFF;
+  --bubbleHer:#FFFFFF; --bubbleHerText:#17171C; --error:#D71921; --chipBg:#E7E9FF; --chipText:#4A5BE0;
+  --inputBg:#FFFFFF; --inputBorder:#DEDEE6; --headerBg:#ECECF0; --onHeader:#17171C; --onHeaderSoft:#8B8B96;
+  --primaryBg:#17171C; --primaryText:#FFFFFF; --canvasBg:#FFFFFF; --boardTrack:#E2E2EA; --boardSafe:#AADCAA;
+  --switchThumbOff:#C9C9D4; --divider:#DEDEE6;
+}
+
 /* ---------- Morning Cream component treatment (cream only) ---------- */
 html[data-theme="cream"] body {
   background:
@@ -204,6 +217,151 @@ html[data-theme="cream"] .cream-fab {
   html[data-theme="cream"] .cream-hero-art { width: 68px; height: 68px; font-size: 34px; right: 12px; }
   html[data-theme="cream"] .cream-hero-text { max-width: 68%; }
   html[data-theme="cream"] .cream-dnum { width: 33px; height: 33px; }
+}
+
+/* ---------- Bento Grid component treatment (bento only) ---------- */
+html[data-theme="bento"] #shell { background: transparent; border-left-color: transparent; border-right-color: transparent; }
+html[data-theme="bento"] .card { border-radius: 22px; box-shadow: 0 10px 26px rgba(23,23,28,.07); }
+html[data-theme="bento"] .hub-row { border-radius: 22px; box-shadow: 0 8px 22px rgba(23,23,28,.06); }
+html[data-theme="bento"] .hub-tile { border-radius: 14px; }
+html[data-theme="bento"] .hub-slot:nth-child(4n+1) .hub-tile { background: #6C7CFF; }
+html[data-theme="bento"] .hub-slot:nth-child(4n+2) .hub-tile { background: #FFB03A; }
+html[data-theme="bento"] .hub-slot:nth-child(4n+3) .hub-tile { background: #FF6B9D; }
+html[data-theme="bento"] .hub-slot:nth-child(4n) .hub-tile { background: #37C978; }
+html[data-theme="bento"] .btn { border-radius: 999px; }
+html[data-theme="bento"] .btn-primary { box-shadow: 0 10px 22px rgba(23,23,28,.25); }
+html[data-theme="bento"] .chip { border-radius: 999px; }
+html[data-theme="bento"] .icon-btn { box-shadow: 0 6px 16px rgba(23,23,28,.10); }
+html[data-theme="bento"] input, html[data-theme="bento"] textarea, html[data-theme="bento"] select { border-radius: 16px; }
+html[data-theme="bento"] .announce { background: linear-gradient(120deg, #FF9E7A, #FF6B9D); color: #fff; border-radius: 22px; box-shadow: 0 12px 26px rgba(255,107,157,.30); }
+html[data-theme="bento"] .announce button { color: #fff; }
+html[data-theme="bento"] #tabbar {
+  margin: 8px 12px calc(10px + env(safe-area-inset-bottom)); padding-bottom: 0;
+  border: 1px solid #17171C; border-radius: 999px; overflow: hidden;
+  box-shadow: 0 14px 34px rgba(23,23,28,.35);
+}
+html[data-theme="bento"] #tabbar button { color: #9A9AA5; }
+html[data-theme="bento"] #tabbar button.active { color: #FFFFFF; }
+html[data-theme="bento"] #tabbar button:active { background: rgba(255,255,255,.14); }
+html[data-theme="bento"] .bubble { border-radius: 22px; }
+html[data-theme="bento"] .bubble-row.me .bubble { border-bottom-right-radius: 8px; }
+html[data-theme="bento"] .bubble-row.her .bubble { border-bottom-left-radius: 8px; }
+html[data-theme="bento"] .bubble img { border-radius: 16px; }
+html[data-theme="bento"] .modal-sheet { border-radius: 26px 26px 0 0; }
+html[data-theme="bento"] .sheet-btn { border-radius: 16px; }
+
+/* Bento treatment for the shared Home v2 layout (.cream-* classes) */
+html[data-theme="bento"] .cream-head { display: flex; align-items: flex-start; gap: 10px; padding: 2px 2px 0; }
+html[data-theme="bento"] .cream-greet {
+  margin: 0; font-size: 27px; line-height: 1.12; font-weight: 800;
+  color: var(--ink); letter-spacing: -.015em;
+}
+html[data-theme="bento"] .cream-date { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); }
+html[data-theme="bento"] .cream-ava {
+  width: 52px; height: 52px; flex: none; border-radius: 50%;
+  border: 3px solid #FF6B9D; background: #fff; color: var(--ink);
+  font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 20px rgba(23,23,28,.12);
+  overflow: hidden;
+}
+html[data-theme="bento"] .cream-ava img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+html[data-theme="bento"] .icon-btn.cream-theme-btn { width: 44px; height: 44px; margin-top: 4px; }
+html[data-theme="bento"] .cream-week { display: flex; justify-content: space-between; padding: 6px 4px 2px; }
+html[data-theme="bento"] .cream-day { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+html[data-theme="bento"] .cream-dow { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+html[data-theme="bento"] .cream-dnum {
+  width: 36px; height: 36px; border-radius: 50%; font-size: 14.5px; font-weight: 600;
+  color: var(--ink); display: flex; align-items: center; justify-content: center;
+}
+html[data-theme="bento"] .cream-day.today .cream-dow { color: var(--ink); font-weight: 800; }
+html[data-theme="bento"] .cream-day.today .cream-dnum {
+  background: #17171C; color: #fff; box-shadow: 0 8px 18px rgba(23,23,28,.30);
+}
+html[data-theme="bento"] .cream-hero {
+  position: relative; overflow: hidden; border-radius: 26px; padding: 20px;
+  background: linear-gradient(120deg, #FF9E7A, #FF6B9D);
+  box-shadow: 0 14px 30px rgba(255,107,157,.32);
+}
+html[data-theme="bento"] .cream-hero-text { position: relative; z-index: 1; max-width: 70%; }
+html[data-theme="bento"] .cream-hero-title { margin: 0; font-size: 20px; line-height: 1.2; font-weight: 800; color: #fff; }
+html[data-theme="bento"] .cream-hero-desc { margin: 6px 0 0; font-size: 13.5px; line-height: 1.45; color: rgba(255,255,255,.88); }
+html[data-theme="bento"] .cream-hero-streak { margin: 8px 0 0; font-size: 12.5px; font-weight: 700; color: rgba(255,255,255,.78); }
+html[data-theme="bento"] .cream-hero-btn {
+  margin-top: 14px; width: auto; min-height: 44px; padding: 10px 22px;
+  border-radius: 999px; border: 0; background: #fff; color: #E84E7E;
+  font: inherit; font-size: 14.5px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 10px 22px rgba(160,30,80,.30);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+html[data-theme="bento"] .cream-hero-art {
+  position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  width: 86px; height: 86px; border-radius: 50%;
+  background: rgba(255,255,255,.35); font-size: 42px;
+  display: flex; align-items: center; justify-content: center;
+}
+html[data-theme="bento"] .cream-sec-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin: 6px 2px 0;
+}
+html[data-theme="bento"] .cream-sec-title { margin: 0; font-size: 18px; font-weight: 800; color: var(--ink); }
+html[data-theme="bento"] .cream-sec-link {
+  background: none; border: 0; font: inherit; font-size: 13.5px; font-weight: 700;
+  color: var(--accentInk); cursor: pointer; padding: 4px 0; flex: none;
+}
+html[data-theme="bento"] .cream-list {
+  position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 24px; box-shadow: 0 10px 26px rgba(23,23,28,.07); padding: 4px 16px;
+}
+html[data-theme="bento"] .cream-list::before {
+  content: ''; position: absolute; left: 28px; top: 30px; bottom: 30px;
+  border-left: 2px dotted #D8D8E2;
+}
+html[data-theme="bento"] .cream-row {
+  position: relative; display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 0; background: none; border: 0; border-bottom: 1px solid var(--borderSoft);
+  font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+}
+html[data-theme="bento"] .cream-row:last-child { border-bottom: 0; }
+html[data-theme="bento"] .cream-row.static { cursor: default; }
+html[data-theme="bento"] .cream-row:active { transform: scale(.97); filter: brightness(.96); }
+html[data-theme="bento"] .cream-marker {
+  position: relative; z-index: 1; width: 26px; height: 26px; flex: none;
+  border-radius: 50%; border: 2px solid #D8D8E2; background: var(--surface);
+  color: #fff; font-size: 14px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+html[data-theme="bento"] .cream-marker.done { background: #FF6B9D; border-color: #FF6B9D; }
+html[data-theme="bento"] .cream-tile {
+  width: 46px; height: 46px; flex: none; border-radius: 14px; background: #6C7CFF;
+  display: flex; align-items: center; justify-content: center; font-size: 21px;
+}
+html[data-theme="bento"] .cream-tile.tile-peach { background: #FFB03A; }
+html[data-theme="bento"] .cream-tile.tile-mint { background: #37C978; }
+html[data-theme="bento"] .cream-tile.tile-pink { background: #FF6B9D; }
+html[data-theme="bento"] .cream-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+html[data-theme="bento"] .cream-row-name {
+  font-size: 15.5px; font-weight: 700; color: var(--ink); line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+html[data-theme="bento"] .cream-row-sub {
+  font-size: 12.5px; color: var(--muted); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+html[data-theme="bento"] .cream-chev { color: #B9B9C6; font-size: 20px; font-weight: 700; flex: none; }
+html[data-theme="bento"] .cream-fab {
+  position: fixed; right: max(18px, calc(50vw - 222px));
+  bottom: calc(98px + env(safe-area-inset-bottom));
+  width: 56px; height: 56px; border-radius: 50%; border: 0; z-index: 30;
+  background: #17171C; color: #fff; font-size: 22px; cursor: pointer;
+  box-shadow: 0 14px 30px rgba(23,23,28,.38);
+  display: flex; align-items: center; justify-content: center;
+}
+@media (max-width: 380px) {
+  html[data-theme="bento"] .cream-greet { font-size: 24px; }
+  html[data-theme="bento"] .cream-hero-art { width: 68px; height: 68px; font-size: 34px; right: 12px; }
+  html[data-theme="bento"] .cream-hero-text { max-width: 68%; }
+  html[data-theme="bento"] .cream-dnum { width: 33px; height: 33px; }
 }
 
 * { box-sizing: border-box; }

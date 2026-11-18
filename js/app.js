@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.14';
+const BUILD_ID = '2026-11-18.15';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -149,18 +149,19 @@ export const BUILTIN = {
   giftKinds: ['Rose', 'Chocolate', 'Hug', 'Kiss', 'Love Letter', 'Star'],
   moods: ['Amazing', 'Good', 'Okay', 'Low', 'Rough'],
 };
-/** The three built-in themes, in Home-toggle cycle order. */
-export const THEMES = ['warm', 'dark', 'cream'];
-const THEME_COLORS = { warm: '#FBF6EF', dark: '#150D1D', cream: '#FAF2E9' };
-const THEME_PALETTE_KEYS = { warm: 'theme_warm', dark: 'theme_dark', cream: 'theme_cream' };
+/** The four built-in themes, in Home-toggle cycle order. */
+export const THEMES = ['warm', 'dark', 'cream', 'bento'];
+const THEME_COLORS = { warm: '#FBF6EF', dark: '#150D1D', cream: '#FAF2E9', bento: '#ECECF0' };
+const THEME_PALETTE_KEYS = { warm: 'theme_warm', dark: 'theme_dark', cream: 'theme_cream', bento: 'theme_bento' };
 export function themeMode() {
-  // Redesign migration (2026-11-18): Morning Cream IS the redesign the
-  // user asked for — it must be what the app opens in, not a hidden
-  // Settings option. Existing browsers switch to it exactly once;
-  // after that, whatever the user picks in Settings sticks.
+  // Redesign migrations (2026-11-18): each new default applies exactly
+  // once per browser; after that, whatever the user picks in Settings
+  // sticks. Cream was the first redesign default; Bento Grid is the
+  // design the user finally chose ("bento grid final kro").
   if (!ls.get('creamDefaultV1', null)) { ls.set('creamDefaultV1', '1'); ls.set('theme', 'cream'); }
-  const m = ls.get('theme', 'cream');
-  return THEMES.includes(m) ? m : 'cream';
+  if (!ls.get('bentoDefaultV1', null)) { ls.set('bentoDefaultV1', '1'); ls.set('theme', 'bento'); }
+  const m = ls.get('theme', 'bento');
+  return THEMES.includes(m) ? m : 'bento';
 }
 export function applyTheme() {
   const mode = themeMode();
@@ -915,7 +916,7 @@ registerScreen('home', () => {
   const days = daysTogether();
   const ann = rcAnnouncement();
   const annDismissed = ls.get('announceDismissed', '');
-  const themeBtn = '<button class="icon-btn" id="h-theme" aria-label="Switch theme">' + ({ dark: '🌙', cream: '🌅', warm: '☀️' }[nextTheme()]) + '</button>';
+  const themeBtn = '<button class="icon-btn" id="h-theme" aria-label="Switch theme">' + ({ dark: '🌙', cream: '🌅', warm: '☀️', bento: '🍱' }[nextTheme()]) + '</button>';
   // Anniversary card (computed once; both Home layouts use it)
   const sd = startDate();
   const today = new Date(); const start = new Date(sd + 'T00:00:00');
@@ -926,7 +927,7 @@ registerScreen('home', () => {
   else if (diffDays > 0 && diffDays <= 7) annivHtml = '<div class="card"><h3>🎉 Your anniversary is coming up</h3><p class="muted small">Your anniversary is coming up on ' + annivThisYear.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) + '.</p></div>';
   // Morning Cream gets a structurally different Home (reference layout);
   // Warm Editorial and Dark Luxe render exactly as before.
-  if (themeMode() === 'cream') { renderCreamHome({ ann, annDismissed, annivHtml, days }); return; }
+  if (themeMode() === 'cream' || themeMode() === 'bento') { renderCreamHome({ ann, annDismissed, annivHtml, days }); return; }
   let html = topbar('US & Always', { right: themeBtn });
   html += '<div class="screen fill" id="home-live">';
   if (ann && ann !== annDismissed) html += '<div class="announce"><span>📣 ' + esc(ann) + '</span><button id="h-ann-x">Dismiss</button></div>';
@@ -1007,7 +1008,7 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
     const d = new Date(now); d.setDate(now.getDate() - todayDow + i);
     weekHtml += '<div class="cream-day' + (i === todayDow ? ' today' : '') + '"><span class="cream-dow">' + dowNames[i] + '</span><span class="cream-dnum">' + d.getDate() + '</span></div>';
   }
-  const themeBtn = '<button class="icon-btn cream-theme-btn" id="h-theme" aria-label="Switch theme">' + ({ dark: '🌙', cream: '🌅', warm: '☀️' }[nextTheme()]) + '</button>';
+  const themeBtn = '<button class="icon-btn cream-theme-btn" id="h-theme" aria-label="Switch theme">' + ({ dark: '🌙', cream: '🌅', warm: '☀️', bento: '🍱' }[nextTheme()]) + '</button>';
   let html = '<div class="screen fill" id="home-live">';
   // Header: greeting + date, theme toggle, partner avatar (→ Chat).
   html += '<div class="cream-head"><div class="grow"><h1 class="cream-greet">' + esc(greetWord) + ', ' + esc(firstName) + '.</h1>' +
@@ -1919,8 +1920,9 @@ registerScreen('settings', () => {
       // Appearance
       '<h2 class="section">Appearance</h2><div class="card">' +
       '<div class="btn-row"><button class="btn ' + (themeMode() === 'warm' ? 'btn-primary' : 'btn-soft') + '" id="s-warm">☀️ Warm Editorial</button>' +
-      '<button class="btn ' + (themeMode() === 'dark' ? 'btn-primary' : 'btn-soft') + '" id="s-dark">🌙 Dark Luxe</button>' +
-      '<button class="btn ' + (themeMode() === 'cream' ? 'btn-primary' : 'btn-soft') + '" id="s-cream">🌅 Morning Cream</button></div>' +
+      '<button class="btn ' + (themeMode() === 'dark' ? 'btn-primary' : 'btn-soft') + '" id="s-dark">🌙 Dark Luxe</button></div>' +
+      '<div class="btn-row" style="margin-top:10px"><button class="btn ' + (themeMode() === 'cream' ? 'btn-primary' : 'btn-soft') + '" id="s-cream">🌅 Morning Cream</button>' +
+      '<button class="btn ' + (themeMode() === 'bento' ? 'btn-primary' : 'btn-soft') + '" id="s-bento">🍱 Bento Grid</button></div>' +
       '<p class="tiny muted" style="margin:8px 0 0">Three designs — switch any time; your choice is remembered on this device.</p></div>' +
       // Linking
       '<h2 class="section">Linking</h2><div class="card" id="s-link"></div>' +
@@ -1993,6 +1995,7 @@ registerScreen('settings', () => {
     document.getElementById('s-warm').onclick = () => { setTheme('warm'); render(); };
     document.getElementById('s-dark').onclick = () => { setTheme('dark'); render(); };
     document.getElementById('s-cream').onclick = () => { setTheme('cream'); render(); };
+    document.getElementById('s-bento').onclick = () => { setTheme('bento'); render(); };
     // Profile photo: pick → shrink on-device → save to profiles.avatar_data.
     const avaFile = document.getElementById('s-ava-file');
     const avaChange = document.getElementById('s-ava-change');
