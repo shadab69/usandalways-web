@@ -645,3 +645,13 @@ html[data-theme="cream"] .hb-row .cream-row-name, html[data-theme="bento"] .hb-r
    generic .pressed scale alone was too subtle on a wide bubble. */
 .bubble { transition: transform .15s ease, filter .15s ease; }
 .bubble.pressed { transform: scale(.95) !important; filter: brightness(.85) !important; }
+
+/* Own bubbles are near-black in Bento, so a darkening press effect is
+   invisible on them — pressed own bubbles LIGHTEN instead, and both
+   kinds dip a little deeper (build .26). */
+.bubble.pressed { transform: scale(.94) !important; }
+.bubble-row.me .bubble.pressed { filter: brightness(1.45) !important; }
+.bubble-row.her .bubble.pressed { filter: brightness(.85) !important; }
+/* Ludo tokens are ~29px — below a comfortable tap target. An invisible
+   halo grows the tappable area without changing the look. */
+.ludo-token::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }

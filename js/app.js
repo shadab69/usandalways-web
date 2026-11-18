@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.25';
+const BUILD_ID = '2026-11-18.26';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -1810,6 +1810,22 @@ registerScreen('chat', (param) => {
         const oldest = rows[rows.length - 1].id;
         if (!state.oldestId || oldest < state.oldestId) state.oldestId = oldest;
         if (!state.earlierExhausted && rows.length === 100) state.hasEarlier = true;
+      }
+      // mergeView only ever ADDS rows — so a message deleted on the
+      // server (Delete for everyone, or an expired disappearing
+      // message) or hidden on this device (Delete for me) used to stay
+      // visible until the chat was re-opened. Prune the loaded window:
+      // anything inside the fetched range that the server no longer
+      // returns, and anything locally hidden, leaves the view now.
+      {
+        const rawIds = new Set(rows.map((r) => r.id));
+        const hiddenNow = new Set(ls.get('hiddenMsgs:' + S.coupleId, []));
+        const windowOldest = rows.length ? rows[rows.length - 1].id : Infinity;
+        state.messages = state.messages.filter((m) => {
+          if (hiddenNow.has(m.serverId)) return false;
+          if (m.serverId >= windowOldest && !rawIds.has(m.serverId)) return false;
+          return true;
+        });
       }
       mergeView(await buildView(rows));
       renderMessages();
