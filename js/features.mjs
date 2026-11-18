@@ -283,7 +283,8 @@ function ludoScreen() {
     if (rollBtn) rollBtn.disabled = !(st.winner < 0 && st.turn === myIdx() && st.dice === 0);
     if (statusEl) {
       if (st.winner >= 0) statusEl.textContent = st.winner === myIdx() ? 'You won! 🎉 All your tokens are home.' : (S.partner.display_name + ' won this game.');
-      else statusEl.textContent = st.turn === myIdx() ? (st.dice ? 'Your roll: pick a glowing token to move.' : 'Your turn — roll the dice.') : 'Waiting for ' + S.partner.display_name + '…';
+      else if (st.turn === myIdx() && st.dice && movable.length === 0) statusEl.textContent = '🎲 ' + st.dice + ' — no token can move with this roll (a token needs a 6 to leave home). Turn passing…';
+      else statusEl.textContent = st.turn === myIdx() ? (st.dice ? 'Your roll: tap a glowing token to move it.' : 'Your turn — roll the dice.') : 'Waiting for ' + S.partner.display_name + '…';
     }
   };
   const save = async () => {
@@ -319,7 +320,9 @@ function ludoScreen() {
     render();
     await save();
     if (Ludo.isStuck(st)) {
-      setTimeout(async () => { Ludo.passIfStuck(st); render(); await save(); }, 900);
+      // Give the player time to read why nothing can move before the
+      // turn passes (900ms felt like the roll was silently discarded).
+      setTimeout(async () => { Ludo.passIfStuck(st); render(); await save(); }, 2000);
     }
   };
   document.getElementById('ludo-new').onclick = async () => {

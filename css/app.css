@@ -134,6 +134,7 @@ html[data-theme="cream"] .cream-day.today .cream-dnum {
   background: #432818; color: #FAF2E9; box-shadow: 0 8px 18px rgba(67,40,24,.30);
 }
 html[data-theme="cream"] .cream-hero {
+  flex: none; /* overflow:hidden makes a flex item crushable — never shrink the hero */
   position: relative; overflow: hidden; border-radius: 28px; padding: 20px;
   background: linear-gradient(135deg, #FBD9B8, #F8C79B);
   box-shadow: 0 14px 30px rgba(232,131,58,.25);
@@ -279,6 +280,7 @@ html[data-theme="bento"] .cream-day.today .cream-dnum {
   background: #17171C; color: #fff; box-shadow: 0 8px 18px rgba(23,23,28,.30);
 }
 html[data-theme="bento"] .cream-hero {
+  flex: none; /* overflow:hidden makes a flex item crushable — never shrink the hero */
   position: relative; overflow: hidden; border-radius: 26px; padding: 20px;
   background: linear-gradient(120deg, #FF9E7A, #FF6B9D);
   box-shadow: 0 14px 30px rgba(255,107,157,.32);
@@ -533,7 +535,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   position: absolute; width: 8.6%; height: 8.6%; border-radius: 50%; transform: translate(-50%, -50%);
   border: 2px solid #fff; cursor: pointer; z-index: 3; box-shadow: 0 1px 4px rgba(0,0,0,.3);
 }
-.ludo-token.movable { outline: 3px solid var(--accent); }
+.ludo-token.movable { outline: 3px solid var(--accent); outline-offset: 1px; animation: ludopulse 0.9s ease-in-out infinite; z-index: 3; }
+@keyframes ludopulse { 0%, 100% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(1.22); } }
 .pet-face { font-size: 84px; text-align: center; line-height: 1.1; }
 .stat-bar { height: 10px; border-radius: 5px; background: var(--surfaceSoft); overflow: hidden; }
 .stat-bar i { display: block; height: 100%; background: var(--accent); }

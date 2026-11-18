@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.15';
+const BUILD_ID = '2026-11-18.16';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -1923,7 +1923,7 @@ registerScreen('settings', () => {
       '<button class="btn ' + (themeMode() === 'dark' ? 'btn-primary' : 'btn-soft') + '" id="s-dark">🌙 Dark Luxe</button></div>' +
       '<div class="btn-row" style="margin-top:10px"><button class="btn ' + (themeMode() === 'cream' ? 'btn-primary' : 'btn-soft') + '" id="s-cream">🌅 Morning Cream</button>' +
       '<button class="btn ' + (themeMode() === 'bento' ? 'btn-primary' : 'btn-soft') + '" id="s-bento">🍱 Bento Grid</button></div>' +
-      '<p class="tiny muted" style="margin:8px 0 0">Three designs — switch any time; your choice is remembered on this device.</p></div>' +
+      '<p class="tiny muted" style="margin:8px 0 0">Four designs — switch any time; your choice is remembered on this device.</p></div>' +
       // Linking
       '<h2 class="section">Linking</h2><div class="card" id="s-link"></div>' +
       // Relationship
