@@ -2,8 +2,10 @@
 // channel protocol over a raw WebSocket. No supabase-js — the app is
 // build-free and dependency-free, so the small slice of the protocol
 // we need is implemented here directly: join one channel, subscribe
-// to postgres_changes on public.messages for our couple, heartbeat,
-// push access-token refreshes, reconnect with backoff.
+// to postgres_changes on public.messages and public.playback_state
+// for our couple, heartbeat, push access-token refreshes, reconnect
+// with backoff. Events are routed by table: messages go to onEvent,
+// playback_state rows go to onPlayback.
 //
 // Everything is defensive: if WebSocket is unavailable or the join is
 // refused (for example because the table is not in the realtime
@@ -17,7 +19,7 @@ const HEARTBEAT_MS = 25000;
 const TOKEN_CHECK_MS = 30000;
 const TOPIC = 'realtime:ua-messages';
 
-export function createRealtimeClient({ onEvent, onStatus } = {}) {
+export function createRealtimeClient({ onEvent, onPlayback, onStatus } = {}) {
   let ws = null;
   let coupleId = '';
   let joinRef = null;
@@ -81,6 +83,8 @@ export function createRealtimeClient({ onEvent, onStatus } = {}) {
         postgres_changes: [
           { event: 'INSERT', schema: 'public', table: 'messages', filter: 'couple_id=eq.' + coupleId },
           { event: 'UPDATE', schema: 'public', table: 'messages', filter: 'couple_id=eq.' + coupleId },
+          { event: 'INSERT', schema: 'public', table: 'playback_state', filter: 'couple_id=eq.' + coupleId },
+          { event: 'UPDATE', schema: 'public', table: 'playback_state', filter: 'couple_id=eq.' + coupleId },
         ],
       },
     };
@@ -107,8 +111,10 @@ export function createRealtimeClient({ onEvent, onStatus } = {}) {
     if (data.event === 'postgres_changes' && data.topic === TOPIC) {
       const d = data.payload && data.payload.data;
       if (d && (d.type === 'INSERT' || d.type === 'UPDATE')) {
+        const evt = { type: d.type, record: d.record || null, oldRecord: d.old_record || null };
         try {
-          if (onEvent) onEvent({ type: d.type, record: d.record || null, oldRecord: d.old_record || null });
+          if (d.table === 'playback_state') { if (onPlayback) onPlayback(evt); }
+          else if (onEvent) onEvent(evt);
         } catch { /* listener errors must not kill the socket */ }
       }
       return;

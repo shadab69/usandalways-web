@@ -170,6 +170,31 @@ export function realtimeMessageAction({ screen, eventType, senderId, myId }) {
   return eventType === 'INSERT' ? 'notify' : 'badge';
 }
 
+// ---- Together sync engine (build 2026-11-18.12) -----------------------------
+// The shared playback model: the last playback_state row this screen
+// applied or broadcast, as { positionMs, playing, atMs } — positionMs
+// was the position at atMs (epoch ms), so while playing the expected
+// position advances with the wall clock. `local` is the local player's
+// own truth { positionMs, playing } read back right now (YouTube IFrame
+// API getCurrentTime / player state, or the media element's own values).
+// Decide whether the local player has diverged enough to broadcast:
+// a play/pause flip, or a position more than 2.5 s away from the model
+// (a seek — including one made with the player's own seek bar). Returns
+// null to stay silent. A freshly applied remote row makes local match
+// the model, so following a partner's change never echoes back.
+export function syncBroadcastDecision(model, local, nowMs) {
+  if (!model || !local) return null;
+  const now = Number(nowMs) || 0;
+  let atMs = Number(model.atMs);
+  if (!Number.isFinite(atMs)) atMs = now;
+  const expected = (Number(model.positionMs) || 0) + (model.playing ? Math.max(0, now - atMs) : 0);
+  const localPos = Math.max(0, Number(local.positionMs) || 0);
+  const localPlaying = !!local.playing;
+  if (localPlaying !== !!model.playing) return { positionMs: Math.round(localPos), playing: localPlaying };
+  if (Math.abs(localPos - expected) > 2500) return { positionMs: Math.round(localPos), playing: localPlaying };
+  return null;
+}
+
 // ---- Bug #3: chat render signature ------------------------------------------
 // A stable string describing everything renderMessages() paints. The
 // chat poll compares signatures and skips the DOM rebuild when nothing

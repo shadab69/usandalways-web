@@ -8,11 +8,11 @@ import * as api from './api.mjs';
 import * as E from './crypto.mjs';
 import {
   S, registerScreen, showScreen, topbar, wireBack, esc, toast, sheet, closeSheet,
-  confirmDlg, every, sealText, openText, sealFileBytes, openFileBytes, e2eeReady,
+  confirmDlg, every, sealText, openText, sealFileBytes, openFileBytes, e2eeReady, setPlaybackHandler,
   BUILTIN, rcList, uid, todayIso, initials, daysTogether, prevIsoDay,
   cacheMyCheckin, openChatWireRetry,
 } from './app.js';
-import { latestRowPerUser, nextSpinCount, playbackDecision, classifyMediaLink } from './logic.mjs';
+import { latestRowPerUser, nextSpinCount, playbackDecision, classifyMediaLink, syncBroadcastDecision } from './logic.mjs';
 
 const KEYS_NOT_READY = 'Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.';
 
@@ -511,6 +511,35 @@ function playlistScreen() {
 }
 
 // ================================================================ Listen / Watch Together (playback_state)
+
+// Loads the official YouTube IFrame API once (module-level promise,
+// shared by every mount of the player screens). The API is what makes
+// real position readback (getCurrentTime) and player-state events
+// possible — with postMessage commands alone there is no way to know
+// the viewer used the embed's own seek bar or pause button, which is
+// why forwards never reached the partner. If the script cannot load
+// (offline, blocked), callers fall back to the postMessage behaviour.
+let ytApiPromise = null;
+function loadYouTubeApi() {
+  if (typeof window !== 'undefined' && window.YT && window.YT.Player) return Promise.resolve(window.YT);
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (e) => { if (!settled) { settled = true; ytApiPromise = null; reject(e); } };
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (prev) { try { prev(); } catch { /* an older handler must not block us */ } }
+      if (!settled) { settled = true; resolve(window.YT); }
+    };
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.onerror = () => fail(new Error('YouTube API failed to load'));
+    document.head.appendChild(tag);
+    setTimeout(() => fail(new Error('YouTube API timed out')), 10000);
+  });
+  return ytApiPromise;
+}
+
 function playbackScreen(kind) {
   if (!S.partner) return needLink(kind === 'music' ? 'Listen Together' : 'Watch Together');
   const isMusic = kind === 'music';
@@ -521,6 +550,17 @@ function playbackScreen(kind) {
   let ytPlaying = false; // last applied YouTube play state
   let ytPosSec = 0;      // YouTube position (seconds) as of ytPosAt
   let ytPosAt = 0;       // ms epoch when ytPosSec was current
+  // Sync engine (build 2026-11-18.12): the shared-state model — the
+  // last playback_state row applied or broadcast, its position
+  // advancing by wall clock while playing. The sampler compares the
+  // local player's real readback against it (logic.syncBroadcastDecision).
+  let model = null;            // { positionMs, playing, atMs } | null
+  let syncSuppressUntil = 0;   // settle window after an apply/broadcast
+  let broadcastBusy = false;
+  let blockPauseBroadcast = false; // partner pressed play; this side has not started yet
+  let ytPlayer = null;         // YT.Player once the API owns the iframe
+  let ytApiState = 'idle';     // idle | loading | ready | failed
+  let ytPending = null;        // latest YouTube state to apply when the API is ready
   appEl().innerHTML = topbar(isMusic ? 'Listen Together' : 'Watch Together', { back: true }) +
     '<div class="screen"><p class="lede small">Paste a YouTube link, or a direct link to ' + (isMusic ? 'an audio' : 'a video') + ' file. Both of your devices play it and stay in step.</p>' +
     '<div class="card"><label class="field" for="pb-url">' + (isMusic ? 'Audio' : 'Video') + ' link</label><input type="url" id="pb-url" placeholder="https://…/' + (isMusic ? 'song.mp3' : 'movie.mp4') + '">' +
@@ -532,7 +572,7 @@ function playbackScreen(kind) {
     '<div id="pb-yt-wrap" hidden><div style="position:relative;padding-top:56.25%;background:#000;border-radius:12px;overflow:hidden">' +
     '<iframe id="pb-yt" title="YouTube player" style="position:absolute;left:0;top:0;width:100%;height:100%;border:0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>' +
     (isMusic ? '<p class="tiny muted" style="margin:8px 0 0">YouTube songs play with their video here.</p>' : '') +
-    '<p class="tiny muted" style="margin:8px 0 0">YouTube: play and pause stay in step for both of you; the exact position catches up whenever either of you presses Play or Pause.</p></div>' +
+    '<p class="tiny muted" style="margin:8px 0 0">Play, pause or forward on either side — the other side follows within a second or two.</p></div>' +
     (isMusic ? '<audio id="pb-media" controls></audio>' : '<video id="pb-media" controls playsinline></video>') +
     '<div class="btn-row" style="margin-top:10px"><button class="btn btn-soft" id="pb-play">▶ Play for both</button><button class="btn btn-soft" id="pb-pause">⏸ Pause for both</button></div>' +
     '<p class="tiny muted" id="pb-status" style="margin:8px 0 0"></p></div><div class="grow"></div></div>';
@@ -549,10 +589,60 @@ function playbackScreen(kind) {
   });
   const persist = (body) => api.post('/playback_state', body, 'resolution=merge-duplicates');
 
-  // ---- YouTube embed control (the iframe listens for postMessage
-  // commands when enablejsapi=1). There is no position readback without
-  // the full API, so the position is tracked by estimate: the last
-  // applied position, advanced by the clock while playing.
+  // ---- Sync engine: read the local player's truth, compare it with
+  // the shared model, and broadcast when they diverge — a play/pause
+  // flip, or a position more than ~2.5 s from the model (a seek,
+  // including one made with the player's own controls). Applying a
+  // row sets the model FIRST, so the events the player fires while
+  // obeying it read as "matches the model" and never echo back.
+  const readLocal = () => {
+    if (ytId) {
+      if (ytPlayer && ytApiState === 'ready') {
+        try {
+          const st = ytPlayer.getPlayerState();
+          if (st === -1 || st === 5) return null; // unstarted / cued: no truth yet
+          const t = ytPlayer.getCurrentTime();
+          if (typeof t !== 'number' || !Number.isFinite(t)) return null;
+          return { positionMs: t * 1000, playing: st === 1 || st === 3 }; // playing, or buffering towards it
+        } catch { return null; }
+      }
+      // postMessage fallback (API unavailable): there is no readback,
+      // so the "truth" is the clock-advanced estimate — which tracks
+      // the model, so the sampler stays silent, exactly as before.
+      return { positionMs: currentPositionMs(), playing: ytPlaying };
+    }
+    if (media && media.getAttribute('src')) {
+      return { positionMs: media.currentTime * 1000, playing: !media.paused && !media.ended };
+    }
+    return null;
+  };
+  const runSyncCheck = async () => {
+    if (!model || !curUrl || broadcastBusy) return;
+    if (Date.now() < syncSuppressUntil) return;
+    const local = readLocal();
+    if (!local) return;
+    if (local.playing) blockPauseBroadcast = false;
+    const dec = syncBroadcastDecision(model, local, Date.now());
+    if (!dec) return;
+    // The partner pressed play and this device has not started yet
+    // (autoplay rules): do not "correct" them with a pause broadcast.
+    // This side starts when its user taps the player — and that play
+    // is itself a local truth the sampler then sees.
+    if (!dec.playing && blockPauseBroadcast) return;
+    broadcastBusy = true;
+    const body = buildBody(curUrl, dec.positionMs, dec.playing);
+    model = { positionMs: body.position_ms, playing: body.playing, atMs: Date.now() };
+    syncSuppressUntil = Date.now() + 1200;
+    try { await persist(body); } catch { /* the 3 s poll reconciles */ }
+    broadcastBusy = false;
+  };
+  const pokeSync = () => { runSyncCheck().catch(() => {}); };
+
+  // ---- YouTube control. Preferred path: the official IFrame API —
+  // real getCurrentTime() readback and onStateChange events, so the
+  // embed's own play / pause / seek controls are sync inputs too.
+  // Fallback when the API script cannot load: postMessage commands
+  // with a clock-advanced position estimate (the previous behaviour).
   const ytCommand = (func, args) => {
     const f = document.getElementById('pb-yt');
     if (!f || !f.contentWindow) return;
@@ -562,27 +652,73 @@ function playbackScreen(kind) {
     ytCommand('seekTo', [Math.max(0, Math.floor(ytPosSec)), true]);
     ytCommand(ytPlaying ? 'playVideo' : 'pauseVideo');
   };
+  const applyYtState = (id, playing, targetSec) => {
+    ytPlaying = playing; ytPosSec = targetSec; ytPosAt = Date.now();
+    if (!ytPlayer) return;
+    try {
+      if (ytId !== id) {
+        ytId = id;
+        const arg = { videoId: id, startSeconds: Math.max(0, Math.floor(targetSec)) };
+        if (playing) ytPlayer.loadVideoById(arg); else ytPlayer.cueVideoById(arg);
+      } else {
+        ytPlayer.seekTo(Math.max(0, targetSec), true);
+        if (playing) ytPlayer.playVideo(); else ytPlayer.pauseVideo();
+      }
+    } catch { /* not ready yet — onReady reapplies the pending state */ }
+  };
+  const ensureYtPlayer = () => {
+    if (ytPlayer || ytApiState === 'loading' || ytApiState === 'ready' || ytApiState === 'failed') return;
+    ytApiState = 'loading';
+    loadYouTubeApi().then((YT) => {
+      const f = document.getElementById('pb-yt');
+      if (!f) { ytApiState = 'idle'; return; } // screen went away — retry on the next mount
+      f.onload = null; // the API owns the frame now
+      try {
+        ytPlayer = new YT.Player('pb-yt', {
+          host: 'https://www.youtube-nocookie.com',
+          events: {
+            onReady: () => {
+              ytApiState = 'ready';
+              if (ytPending) { const p = ytPending; ytPending = null; applyYtState(p.id, p.playing, p.targetSec); }
+              pokeSync();
+            },
+            onStateChange: () => pokeSync(),
+          },
+        });
+      } catch { ytApiState = 'failed'; }
+    }).catch(() => { ytApiState = 'failed'; });
+  };
   const showYt = (id, playing, targetSec) => {
     const wrap = document.getElementById('pb-yt-wrap');
     if (wrap) wrap.hidden = false;
     ytPlaying = playing; ytPosSec = targetSec; ytPosAt = Date.now();
-    const f = document.getElementById('pb-yt');
-    if (!f) return;
-    if (ytId !== id) {
-      ytId = id;
-      // Commands posted before the player is ready can be dropped, so
-      // re-send the latest state once the new embed has loaded.
-      f.onload = () => sendYtState();
-      f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?enablejsapi=1&start=' + Math.max(0, Math.floor(targetSec)) + '&rel=0&playsinline=1' + (playing ? '&autoplay=1' : '');
-    } else {
-      sendYtState();
+    if (ytPlayer) {
+      if (ytApiState === 'ready') applyYtState(id, playing, targetSec);
+      else ytPending = { id, playing, targetSec };
+      return;
     }
+    ytPending = { id, playing, targetSec };
+    const f = document.getElementById('pb-yt');
+    if (f) {
+      if (ytId !== id) {
+        ytId = id;
+        // Commands posted before the player is ready can be dropped, so
+        // re-send the latest state once the new embed has loaded.
+        f.onload = () => sendYtState();
+        f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?enablejsapi=1&start=' + Math.max(0, Math.floor(targetSec)) + '&rel=0&playsinline=1' + (playing ? '&autoplay=1' : '');
+      } else {
+        sendYtState();
+      }
+    }
+    if (ytApiState !== 'failed') ensureYtPlayer();
   };
   const hideYt = () => {
     const wrap = document.getElementById('pb-yt-wrap');
     if (wrap) wrap.hidden = true;
+    ytPending = null;
+    if (ytPlayer) { try { ytPlayer.stopVideo(); } catch { /* ignore */ } }
     const f = document.getElementById('pb-yt');
-    if (f && ytId) { f.onload = null; f.src = 'about:blank'; }
+    if (f && ytId && !ytPlayer) { f.onload = null; f.src = 'about:blank'; }
     ytId = ''; ytPlaying = false;
   };
   const stopPlayers = () => {
@@ -590,7 +726,12 @@ function playbackScreen(kind) {
     hideYt();
   };
   const currentPositionMs = () => {
-    if (ytId) return Math.max(0, (ytPosSec + (ytPlaying ? (Date.now() - ytPosAt) / 1000 : 0)) * 1000);
+    if (ytId) {
+      if (ytPlayer && ytApiState === 'ready') {
+        try { const t = ytPlayer.getCurrentTime(); if (typeof t === 'number' && Number.isFinite(t)) return t * 1000; } catch { /* estimate below */ }
+      }
+      return Math.max(0, (ytPosSec + (ytPlaying ? (Date.now() - ytPosAt) / 1000 : 0)) * 1000);
+    }
     return media ? media.currentTime * 1000 : 0;
   };
 
@@ -606,6 +747,13 @@ function playbackScreen(kind) {
     if (!force && stamp === appliedStamp) return;
     appliedStamp = stamp;
     curUrl = row.url;
+    // The sync model becomes this row BEFORE the players are driven,
+    // so the events they fire while obeying it match the model and
+    // never echo back as a fresh broadcast.
+    const rowAtMs = new Date(row.updated_at).getTime();
+    model = { positionMs: row.position_ms, playing: !!row.playing, atMs: Number.isFinite(rowAtMs) ? rowAtMs : Date.now() };
+    syncSuppressUntil = Date.now() + 1200;
+    if (row.playing && row.updated_by !== uid()) blockPauseBroadcast = true;
     const inp = document.getElementById('pb-url');
     if (inp && row.updated_by !== uid()) inp.value = row.url;
     const elapsed = row.playing ? (Date.now() - new Date(row.updated_at).getTime()) / 1000 : 0;
@@ -625,7 +773,7 @@ function playbackScreen(kind) {
     if (media.getAttribute('src') !== row.url) media.src = row.url;
     const apply = () => {
       if (Math.abs(media.currentTime - target) > 1.5 && media.duration) media.currentTime = Math.min(target, media.duration - 0.2);
-      if (row.playing) media.play().catch(() => { status('Tap the player to start — your partner pressed play.'); });
+      if (row.playing) media.play().catch(() => { blockPauseBroadcast = true; status('Tap the player to start — your partner pressed play.'); });
       else media.pause();
       status(row.updated_by === uid() ? 'You set what is playing.' : S.partner.display_name + ' set what is playing.');
     };
@@ -661,19 +809,17 @@ function playbackScreen(kind) {
     applyRow(body, true);
     try { await persist(body); } catch (e) { toast(e.message); }
   };
-  const load = async (force) => {
-    const rows = await api.get('/playback_state?couple_id=eq.' + S.coupleId + '&select=kind,url,position_ms,playing,updated_by,updated_at');
-    if (!rows.length) return;
-    const row = rows[0];
+  // One row, from the poll or from realtime — same handling either way.
+  const handleRow = (row) => {
     const card = document.getElementById('pb-player-card');
     const other = document.getElementById('pb-other');
     // Bug #7: the shared row may belong to the OTHER player (music vs
     // video). Never load the partner's video into this audio element
     // (or vice versa) and never write state against the wrong kind.
     const decision = playbackDecision(row, kind);
-    if (decision === 'empty') { stopPlayers(); curUrl = ''; if (card) card.hidden = true; if (other) other.hidden = true; return; }
+    if (decision === 'empty') { stopPlayers(); curUrl = ''; model = null; if (card) card.hidden = true; if (other) other.hidden = true; return; }
     if (decision === 'other') {
-      stopPlayers(); curUrl = '';
+      stopPlayers(); curUrl = ''; model = null;
       if (card) card.hidden = true;
       if (other) {
         other.hidden = false;
@@ -682,10 +828,32 @@ function playbackScreen(kind) {
       }
       return;
     }
-    applyRow(row, force);
+    applyRow(row, false);
+  };
+  const load = async () => {
+    const rows = await api.get('/playback_state?couple_id=eq.' + S.coupleId + '&select=kind,url,position_ms,playing,updated_by,updated_at');
+    if (!rows.length) return;
+    handleRow(rows[0]);
   };
   load().catch(() => {});
-  every(3000, () => load(false));
+  every(3000, () => load());
+  // Sync sampler: the safety net behind the player events — catches
+  // anything they missed within about a second.
+  every(1000, () => runSyncCheck());
+  // The media element's own controls are sync inputs too: their events
+  // poke an immediate check instead of waiting for the sampler.
+  media.addEventListener('play', pokeSync);
+  media.addEventListener('pause', pokeSync);
+  media.addEventListener('seeked', pokeSync);
+  // Realtime: a partner's row lands the moment it is written, not at
+  // the next 3 s poll. Our own rows are ignored here — they were
+  // already applied locally when broadcast (the poll's stamp check
+  // covers the rest). Unregistered by showScreen on the way out.
+  setPlaybackHandler((row) => {
+    if (!row || row.couple_id !== S.coupleId) return;
+    if (row.updated_by === uid()) return;
+    handleRow(row);
+  });
 }
 
 // ================================================================ Draw Together (draw_strokes)

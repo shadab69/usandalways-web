@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.11';
+const BUILD_ID = '2026-11-18.12';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -117,6 +117,9 @@ const TABS = [
 export function showScreen(name, param) {
   stopPollers();
   if (name !== 'chat') chatScreenReload = null;
+  // The Together playback handler belongs to the open Listen/Watch
+  // screen only; leaving those screens unregisters it.
+  if (name !== 'listen' && name !== 'watch') setPlaybackHandler(null);
   S.screen = name; S.screenParam = param || null;
   const bar = document.getElementById('tabbar');
   const mainScreens = ['home', 'chat', 'together', 'memories', 'settings'];
@@ -628,12 +631,54 @@ export async function primeCursors() {
   } catch { /* cursors keep their current values */ }
   S.eventsPrimed = true; S.msgsPrimed = true;
 }
+// ---------------------------------------------------------------- battery sharing (build 2026-11-18.12)
+// ONE app-level sender for the whole session — the old sender lived
+// inside the chat screen, so a partner who mostly stayed on Home never
+// sent anything and the other side saw a battery level only sometimes.
+// The loop runs whatever screen is open: it sends once at start, then
+// re-checks about once a minute and on every level/charging change,
+// but only POSTs when the percentage or charging state actually
+// changed, and only while sharing is on (checked on every attempt, so
+// turning the Settings switch off stops it at once). Wire format is
+// unchanged: an events row, kind 'battery', payload = whole percent.
+let batteryLoopStarted = false;
+let batteryManager = null;
+let lastBatterySent = null; // "<pct>|<charging>" signature of the last POST
+async function sendBatteryIfChanged() {
+  if (!S.me || !S.coupleId || !S.unlocked) return;
+  if (!S.me.battery_share) { lastBatterySent = null; return; }
+  if (!navigator.getBattery) return;
+  try {
+    const b = batteryManager || (batteryManager = await navigator.getBattery());
+    const pct = Math.round(b.level * 100);
+    const sig = pct + '|' + (b.charging ? '1' : '0');
+    if (sig === lastBatterySent) return;
+    lastBatterySent = sig;
+    await api.post('/events', { couple_id: S.coupleId, sender_id: uid(), kind: 'battery', payload: String(pct) });
+  } catch { /* battery is best-effort */ }
+}
+function startBatteryLoop() {
+  if (batteryLoopStarted) return;
+  batteryLoopStarted = true;
+  sendBatteryIfChanged();
+  setInterval(() => { if (!document.hidden) sendBatteryIfChanged(); }, 60000);
+  if (navigator.getBattery) {
+    navigator.getBattery().then((b) => {
+      batteryManager = b;
+      b.addEventListener('levelchange', () => sendBatteryIfChanged());
+      b.addEventListener('chargingchange', () => sendBatteryIfChanged());
+      sendBatteryIfChanged();
+    }).catch(() => { /* the minute tick still covers it */ });
+  }
+}
+
 let globalStarted = false;
 function startGlobalLoops() {
   if (globalStarted) return;
   globalStarted = true;
   // Prime cursors so old events/messages never replay as new.
   primeCursors();
+  startBatteryLoop();
   // Bug #1: while unlinked, poll slowly for the partner joining; the
   // transition re-renders whatever screen is open (loadCouple re-primes
   // the cursors first — bug #8).
@@ -729,6 +774,9 @@ export async function sendChatTextNow(wirePlain, thread, replyToId, expiresAtMs)
 let rtClient = null;
 let rtConnected = false;
 let chatScreenReload = null; // set while the chat screen is mounted
+let playbackRtHandler = null; // set while a Listen/Watch screen is mounted
+/** Registers the open Together screen's playback_state handler (null clears it). */
+export function setPlaybackHandler(fn) { playbackRtHandler = fn || null; }
 let unreadCount = 0;
 let badgeInFlight = false;
 let badgePending = false;
@@ -791,6 +839,11 @@ function syncRealtime() {
   if (!rtClient) {
     rtClient = createRealtimeClient({
       onEvent: onRealtimeMessage,
+      onPlayback: (evt) => {
+        if (playbackRtHandler && evt.record) {
+          try { playbackRtHandler(evt.record); } catch { /* a bad row must not kill delivery */ }
+        }
+      },
       onStatus: (connected) => {
         rtConnected = connected;
         if (connected) realtimeCatchUp();
@@ -1175,6 +1228,24 @@ async function loadHomeLive() {
     homeCache.streakText = streakText;
     const st = document.getElementById('home-streak');
     if (st) st.textContent = streakText;
+    // Partner battery: seed from their LATEST battery event so Home
+    // shows the last level they sent while their app was open, instead
+    // of starting blank on every load and only filling if a new event
+    // happens to arrive live (build 2026-11-18.12). Only when the
+    // partner shares at all — while sharing is off, nothing is shown.
+    if (S.partner && S.partner.battery_share) {
+      const evs = await api.get('/events?couple_id=eq.' + S.coupleId + '&sender_id=eq.' + S.partner.id + '&kind=eq.battery&order=id.desc&limit=1&select=payload,created_at');
+      if (evs.length) {
+        const pct = parseInt(evs[0].payload, 10);
+        if (!Number.isNaN(pct)) {
+          S.partnerBattery = pct;
+          const bEl = document.getElementById('home-battery');
+          if (bEl) bEl.textContent = 'Your partner’s battery: ' + pct + '%';
+          const cb = document.getElementById('cream-batt-sub');
+          if (cb) cb.textContent = 'Battery ' + pct + '%';
+        }
+      }
+    }
   } catch { /* home still renders without live extras */ }
 }
 export function prevIsoDay(iso) {
@@ -1748,17 +1819,9 @@ registerScreen('chat', (param) => {
     const t = document.getElementById('chat-typing');
     if (t && S.partnerTypingUntil && Date.now() > S.partnerTypingUntil) t.textContent = '';
   });
-  // Battery sharing while the chat is open (opt-in), about once a minute.
-  if (S.me && S.me.battery_share && navigator.getBattery) {
-    const sendBattery = async () => {
-      try {
-        const b = await navigator.getBattery();
-        await api.post('/events', { couple_id: S.coupleId, sender_id: uid(), kind: 'battery', payload: String(Math.round(b.level * 100)) });
-      } catch { /* battery is best-effort */ }
-    };
-    sendBattery();
-    const bt = setInterval(() => { if (S.screen === 'chat') sendBattery(); else clearInterval(bt); }, 60000);
-  }
+  // Battery sharing is sent by the ONE app-level loop started in
+  // startGlobalLoops() (build 2026-11-18.12) — it runs on every screen,
+  // not only while chat is open.
 });
 
 // ---------------------------------------------------------------- Voice notes list
@@ -1830,7 +1893,7 @@ registerScreen('settings', () => {
       // Sharing (opt-in)
       '<h2 class="section">Sharing — only if you both want it</h2><div class="card">' +
       '<div class="switch-row"><span class="lbl">Share my battery level</span><span class="switch"><input type="checkbox" id="s-battery" ' + (S.me && S.me.battery_share ? 'checked' : '') + '><span class="track"></span></span></div>' +
-      '<p class="tiny muted">While on, this browser sends your battery percentage about once a minute while the chat is open. Nothing is sent while it is off.</p>' +
+      '<p class="tiny muted">While on, this browser sends your battery percentage about once a minute while the app is open, and whenever the level changes. Nothing is sent while it is off.</p>' +
       '<h3 style="margin-top:14px">Arrival</h3>' +
       '<p class="tiny muted">Save one place below. Your partner is never shown your coordinates — only the moment you tap “I reached”, which shares the place’s name. (On the web there is no background location checking; the tap is the honest version.)</p>' +
       '<label class="field" for="s-arr-label">Place name</label><input type="text" id="s-arr-label" placeholder="Home">' +
