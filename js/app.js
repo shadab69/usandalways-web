@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.13';
+const BUILD_ID = '2026-11-18.14';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -1039,6 +1039,14 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
       '<button class="cream-hero-btn" id="h-link">Link with your partner</button></div><div class="cream-hero-art" aria-hidden="true">💌</div></div>';
   }
   html += annivHtml;
+  // Bucket list sits ABOVE Today (the user asked for it near the top):
+  // next dream + counts, filled live; tap → the full list.
+  if (S.partner) {
+    html += '<div class="cream-sec-head"><h2 class="cream-sec-title">Our bucket list</h2><button class="cream-sec-link" id="h-bucket-all">See all</button></div>';
+    html += '<div class="cream-list"><button class="cream-row" id="h-bucket"><span class="cream-marker"></span>' +
+      '<span class="cream-tile tile-peach">✨</span><span class="cream-row-text"><span class="cream-row-name" id="cream-bucket-next">Loading your dreams…</span>' +
+      '<span class="cream-row-sub" id="cream-bucket-sub">Things you want to do together one day</span></span><span class="cream-chev">›</span></button></div>';
+  }
   // Today: routine-style rows reusing the real check-in / tap / battery.
   if (S.partner) {
     const cachedMood = homeCache.coupleId === S.coupleId && homeCache.checkinDay === todayIso() ? homeCache.checkinMood : '';
@@ -1070,13 +1078,6 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
     '<button class="cream-row" id="' + r[0] + '"><span class="cream-marker"></span>' +
     '<span class="cream-tile ' + tileCycle[i % 3] + '">' + r[1] + '</span><span class="cream-row-text"><span class="cream-row-name">' + r[2] + '</span>' +
     '<span class="cream-row-sub">' + r[3] + '</span></span><span class="cream-chev">›</span></button>').join('') + '</div>';
-  // Bucket list on Home: next dream + counts, filled live; tap → the list.
-  if (S.partner) {
-    html += '<div class="cream-sec-head"><h2 class="cream-sec-title">Our bucket list</h2><button class="cream-sec-link" id="h-bucket-all">See all</button></div>';
-    html += '<div class="cream-list"><button class="cream-row" id="h-bucket"><span class="cream-marker"></span>' +
-      '<span class="cream-tile tile-peach">✨</span><span class="cream-row-text"><span class="cream-row-name" id="cream-bucket-next">Loading your dreams…</span>' +
-      '<span class="cream-row-sub" id="cream-bucket-sub">Things you want to do together one day</span></span><span class="cream-chev">›</span></button></div>';
-  }
   // Floating compose button — a real action: it opens the chat.
   html += '<button class="cream-fab" id="h-fab" aria-label="Write a message">✎</button>';
   html += '<div class="grow"></div><div style="height:84px;flex:none"></div></div>';
