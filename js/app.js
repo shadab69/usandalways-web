@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.4';
+const BUILD_ID = '2026-11-18.5';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -151,8 +151,13 @@ export const THEMES = ['warm', 'dark', 'cream'];
 const THEME_COLORS = { warm: '#FBF6EF', dark: '#150D1D', cream: '#FAF2E9' };
 const THEME_PALETTE_KEYS = { warm: 'theme_warm', dark: 'theme_dark', cream: 'theme_cream' };
 export function themeMode() {
-  const m = ls.get('theme', 'warm');
-  return THEMES.includes(m) ? m : 'warm';
+  // Redesign migration (2026-11-18): Morning Cream IS the redesign the
+  // user asked for — it must be what the app opens in, not a hidden
+  // Settings option. Existing browsers switch to it exactly once;
+  // after that, whatever the user picks in Settings sticks.
+  if (!ls.get('creamDefaultV1', null)) { ls.set('creamDefaultV1', '1'); ls.set('theme', 'cream'); }
+  const m = ls.get('theme', 'cream');
+  return THEMES.includes(m) ? m : 'cream';
 }
 export function applyTheme() {
   const mode = themeMode();
