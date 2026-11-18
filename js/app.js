@@ -7,6 +7,11 @@ import * as api from './api.mjs';
 import * as E from './crypto.mjs';
 import { chatSignature, sniffAudioType, rowDecryptSignature, realtimeMessageAction, badgeLabel } from './logic.mjs';
 import { createRealtimeClient } from './realtime.mjs';
+
+/** Visible build stamp (Settings → Good to know) so any test or bug
+ * report can certify exactly which code the browser was running —
+ * GitHub Pages serves cached copies for up to ~10 minutes. */
+const BUILD_ID = '2026-11-18.3';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -884,6 +889,11 @@ registerScreen('chat', (param) => {
   };
   const disappearHours = () => Number(prefs().disappearHours || 0);
   const renderShell = () => {
+    // The shell rebuild replaces the message list element with the
+    // "Loading…" placeholder, so the diffing signature must be reset —
+    // otherwise renderMessages() can skip the rebuild (unchanged
+    // messages) and strand the placeholder forever.
+    state.lastSig = null;
     const secret = state.thread === 'secret';
     appEl().innerHTML =
       topbar(S.partner.display_name, {
@@ -1276,9 +1286,14 @@ registerScreen('chat', (param) => {
       else inner += esc(m.displayText);
       const reacts = m.reactions.length ? '<div class="reactions">' + m.reactions.map((r) => '<span>' + esc(r.emoji) + '</span>').join('') + '</div>' : '';
       const meta = time + (m.edited ? ' · Edited' : '') + (m.mine && m.readAt ? ' · Read' : '');
-      return '<div class="bubble-row ' + (m.mine ? 'me' : 'her') + '"><button class="bubble" data-msg="' + i + '">' + inner + '</button>' + reacts + '<div class="bubble-meta">' + esc(meta) + '</div></div>';
+      // Photo/voice bubbles use their tap for view/play, so they also
+      // get an explicit ⋯ button for the message menu — a long press
+      // alone is undiscoverable and unreliable with some input types.
+      const menuBtn = (m.kind === 'photo' || m.kind === 'voice') ? '<button class="bubble-menu" data-menu="' + i + '" aria-label="Message options">⋯</button>' : '';
+      return '<div class="bubble-row ' + (m.mine ? 'me' : 'her') + '"><button class="bubble" data-msg="' + i + '">' + inner + '</button>' + menuBtn + reacts + '<div class="bubble-meta">' + esc(meta) + '</div></div>';
     }).join('');
     list.querySelectorAll('[data-msg]').forEach((b) => { b.onclick = () => msgActions(Number(b.dataset.msg)); });
+    list.querySelectorAll('[data-menu]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); msgActions(Number(b.dataset.menu)); }; });
     // Photo/voice bubbles: a tap does their own thing (view / play),
     // so the message menu (react/reply) opens on a long press instead.
     list.querySelectorAll('[data-msg]').forEach((b) => {
@@ -1495,7 +1510,7 @@ registerScreen('settings', () => {
       // Security
       '<h2 class="section">Security</h2><div class="card" id="s-security"></div>' +
       // Platform notes
-      '<h2 class="section">Good to know</h2><div class="card"><p class="small muted" style="margin:0">This web version has no home-screen widget — the Home tab shows the same information. Notifications and scheduled messages work while this page is open. Add this page to your home screen to open it like an app.</p></div>' +
+      '<h2 class="section">Good to know</h2><div class="card"><p class="small muted" style="margin:0">This web version has no home-screen widget — the Home tab shows the same information. Notifications and scheduled messages work while this page is open. Add this page to your home screen to open it like an app.</p><p class="tiny muted" style="margin:8px 0 0">Build ' + BUILD_ID + '</p></div>' +
       // Account
       '<h2 class="section">Account</h2><div class="card">' +
       '<button class="btn btn-ghost" id="s-logout">Sign out</button><div style="height:10px"></div>' +
