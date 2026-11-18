@@ -248,6 +248,7 @@ function ludoScreen() {
   if (!S.partner) return needLink('Ludo Together');
   let game = null; let st = Ludo.newGame(); let p0 = '';
   let saving = false; // bug #9: polls must not overwrite an in-flight save
+  let passTimerFor = ''; // self-heal: a stuck roll must pass even after a reload
   const COLORS = ['#C05B2E', '#2774C8'];
   appEl().innerHTML = topbar('Ludo Together', { back: true }) +
     '<div class="screen"><p class="center muted" id="ludo-status">Loading…</p>' +
@@ -278,13 +279,27 @@ function ludoScreen() {
     const diceEl = document.getElementById('ludo-dice');
     const rollBtn = document.getElementById('ludo-roll');
     const newBtn = document.getElementById('ludo-new');
-    if (newBtn) newBtn.hidden = st.winner < 0;
+    if (newBtn) newBtn.hidden = false; // always available: a wedged game needs an escape hatch
     if (diceEl) diceEl.textContent = st.dice ? '🎲 ' + st.dice : '';
     if (rollBtn) rollBtn.disabled = !(st.winner < 0 && st.turn === myIdx() && st.dice === 0);
     if (statusEl) {
       if (st.winner >= 0) statusEl.textContent = st.winner === myIdx() ? 'You won! 🎉 All your tokens are home.' : (S.partner.display_name + ' won this game.');
       else if (st.turn === myIdx() && st.dice && movable.length === 0) statusEl.textContent = '🎲 ' + st.dice + ' — no token can move with this roll (a token needs a 6 to leave home). Turn passing…';
       else statusEl.textContent = st.turn === myIdx() ? (st.dice ? 'Your roll: tap a glowing token to move it.' : 'Your turn — roll the dice.') : 'Waiting for ' + S.partner.display_name + '…';
+    }
+    // Self-heal a stuck turn: if the saved state is my turn with a roll
+    // that cannot move anything (e.g. the app was closed before the
+    // auto-pass fired), pass it from here — the roll button's own timer
+    // only runs on the device that rolled, in that same page view.
+    if (st.winner < 0 && st.turn === myIdx() && st.dice !== 0 && movable.length === 0) {
+      const key = (game ? game.id : 'nogame') + ':' + st.turn + ':' + st.dice + ':' + st.pos.join(',');
+      if (passTimerFor !== key) {
+        passTimerFor = key;
+        setTimeout(async () => {
+          if (passTimerFor !== key) return;
+          Ludo.passIfStuck(st); render(); await save();
+        }, 2500);
+      }
     }
   };
   const save = async () => {
