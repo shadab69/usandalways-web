@@ -417,3 +417,28 @@ iframe.map { width: 100%; height: 240px; border: 1px solid var(--border); border
 .emoji-row button { font-size: 26px; background: var(--surfaceSoft); border: 0; border-radius: 12px; width: 48px; height: 48px; cursor: pointer; }
 .tap-flash { animation: tapflash 1.2s ease; }
 @keyframes tapflash { 0% { background: var(--surfaceSoft); } 100% { background: transparent; } }
+
+/* ---- Interaction feedback (all themes): every tappable control must
+   visibly respond — a soft press-in scale + brightness shift, with a
+   gentle hover lift on pointer devices. Without this the app feels
+   dead under the finger. ---- */
+.btn, .chip, .icon-btn, #tabbar button, .sheet-btn, .bubble-menu, .emoji-row button {
+  transition: transform .13s ease, filter .13s ease, background-color .15s ease, box-shadow .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.hub-row, .list-row, .cream-row, .switch-row {
+  transition: transform .13s ease, filter .13s ease, background-color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover, .chip:hover, .icon-btn:hover, #tabbar button:hover, .sheet-btn:hover { filter: brightness(1.06); }
+  .hub-row:hover, .list-row:hover, .cream-row:hover { filter: brightness(1.03); }
+}
+.btn:active, .chip:active, .icon-btn:active, #tabbar button:active, .sheet-btn:active, .bubble-menu:active, .emoji-row button:active {
+  transform: scale(.94);
+  filter: brightness(.96);
+}
+.hub-row:active, .list-row:active, .cream-row:active, .switch-row:active {
+  transform: scale(.985);
+  filter: brightness(.98);
+}
