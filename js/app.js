@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.27';
+const BUILD_ID = '2026-11-18.28';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -715,9 +715,32 @@ function startBatteryLoop() {
 }
 
 let globalStarted = false;
+/* Self-update check: the hosting cache has repeatedly left the
+ * couple's phones running old builds for many minutes (fixes "not
+ * working" that were already fixed). version.json is fetched with
+ * no-store + a cache-busting query; when the server build is newer
+ * than the running one, a small banner offers a one-tap update that
+ * reloads past the cache. */
+let updateBannerShown = false;
+async function checkForUpdate() {
+  try {
+    const res = await fetch('version.json?ts=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.build || data.build === BUILD_ID || updateBannerShown) return;
+    updateBannerShown = true;
+    const bar = document.createElement('div');
+    bar.className = 'update-bar';
+    bar.innerHTML = '<span>A new version of US & Always is ready.</span><button id="upd-go">Update</button>';
+    document.body.appendChild(bar);
+    bar.querySelector('#upd-go').onclick = () => { location.replace('./?u=' + encodeURIComponent(data.build)); };
+  } catch { /* offline or old hosting — try again next tick */ }
+}
 function startGlobalLoops() {
   if (globalStarted) return;
   globalStarted = true;
+  checkForUpdate();
+  setInterval(checkForUpdate, 5 * 60000);
   // Prime cursors so old events/messages never replay as new.
   primeCursors();
   startBatteryLoop();
