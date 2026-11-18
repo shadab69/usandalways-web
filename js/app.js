@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.22';
+const BUILD_ID = '2026-11-18.23';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -766,33 +766,10 @@ function startGlobalLoops() {
       refreshUnreadBadge();
     } catch { /* next tick retries */ }
   }, 5000);
-  // Scheduled + surprise messages: sent while this page is open (same honest limit as Android).
-  setInterval(async () => {
-    if (document.hidden || !e2eeReady()) return;
-    const key = 'scheduled:' + S.coupleId;
-    const items = ls.get(key, []);
-    if (!items.length) return;
-    const now = Date.now();
-    const due = items.filter((i) => i.sendAtMs <= now);
-    if (!due.length) return;
-    // Bug #11: a due message that cannot be opened or sent right now
-    // (e.g. the key changed since it was scheduled) stays in storage
-    // for the next tick and the user is told — it is never silently
-    // discarded.
-    const remaining = items.filter((i) => i.sendAtMs > now);
-    let sent = 0, failed = 0;
-    for (const item of due) {
-      const plain = await openText(item.sealed);
-      if (plain === null) { remaining.push(item); failed++; continue; }
-      try {
-        await sendChatTextNow(item.surprise ? 'USSURPRISE1:' + plain : plain, 'main', null, 0);
-        sent++;
-      } catch { remaining.push(item); failed++; }
-    }
-    ls.set(key, remaining);
-    if (failed) toast('A scheduled message could not be sent yet — it is kept and will be retried while this page is open.');
-    if (sent && S.screen === 'chat') showScreen('chat', S.screenParam);
-  }, 5000);
+  // Scheduled messages are delivered by the server at their time
+  // (scheduled_messages + a per-minute server job), even when this
+  // app is closed \u2014 nothing is sent from this page anymore. Older
+  // this-browser schedules are migrated by the chat screen.
 }
 export async function sendChatTextNow(wirePlain, thread, replyToId, expiresAtMs) {
   const sealed = await E.sealChatText(S.myPriv, S.partnerPub, wirePlain);
@@ -1526,20 +1503,61 @@ registerScreen('chat', (param) => {
     if (hash !== stored.hash) { toast('That PIN is not right.'); return false; }
     return true;
   }
-  function renderPending() {
+  // Scheduled messages live on the SERVER (scheduled_messages): a
+  // per-minute server job delivers them at their time even when this
+  // app is closed. The local list is only a display mirror \u2014 the
+  // preview text is never stored on the server; messages stay sealed.
+  let legacyMigrated = false;
+  async function migrateLegacyScheduled() {
+    if (legacyMigrated) return;
+    legacyMigrated = true;
+    const key = 'scheduled:' + S.coupleId;
+    const items = ls.get(key, []);
+    const legacy = items.filter((i) => !i.serverId && i.sealed);
+    if (!legacy.length) return;
+    const kept = items.filter((i) => i.serverId || !i.sealed);
+    for (const item of legacy) {
+      try {
+        const plain = await openText(item.sealed);
+        if (plain === null) continue;
+        const sealed = await E.sealChatText(S.myPriv, S.partnerPub, item.surprise ? 'USSURPRISE1:' + plain : plain);
+        const rows = await api.post('/scheduled_messages', { couple_id: S.coupleId, sender_id: uid(), ciphertext: sealed.wire, nonce: sealed.nonce, thread: 'main', send_at: new Date(item.sendAtMs).toISOString() }, 'return=representation');
+        kept.push({ sendAtMs: item.sendAtMs, surprise: item.surprise, preview: item.preview, serverId: rows[0].id });
+      } catch { kept.push(item); legacyMigrated = false; }
+    }
+    ls.set(key, kept);
+  }
+  async function renderPending() {
     const box = document.getElementById('chat-pending');
     if (!box) return;
-    const items = ls.get('scheduled:' + S.coupleId, []);
+    await migrateLegacyScheduled();
+    let serverRows = null;
+    try { serverRows = await api.get('/scheduled_messages?sender_id=eq.' + uid() + '&delivered_message_id=is.null&order=send_at.asc&select=id,send_at'); } catch { /* mirror only */ }
+    const mirror = ls.get('scheduled:' + S.coupleId, []);
+    const items = serverRows
+      ? serverRows.map((r) => {
+          const m = mirror.find((x) => x.serverId === r.id);
+          return { serverId: r.id, sendAtMs: new Date(r.send_at).getTime(), surprise: m ? !!m.surprise : false, preview: m ? m.preview : '\u2026' };
+        })
+      : mirror;
+    if (serverRows) ls.set('scheduled:' + S.coupleId, items);
     if (!items.length) { box.innerHTML = ''; return; }
-    box.innerHTML = '<div class="notice-bar" style="flex-wrap:wrap">🕰 Scheduled: ' + items.map((i, idx) =>
-      '<span>' + (i.surprise ? '🎁 ' : '') + '“' + esc(i.preview || '…') + '” — ' + new Date(i.sendAtMs).toLocaleString('en-US') + ' <button data-cancel="' + idx + '">Cancel</button></span>').join('') + '</div>' +
-      '<p class="tiny muted" style="padding:0 6px">Scheduled messages are sent while this page is open.</p>';
-    box.querySelectorAll('[data-cancel]').forEach((b) => { b.onclick = () => { const arr = ls.get('scheduled:' + S.coupleId, []); arr.splice(Number(b.dataset.cancel), 1); ls.set('scheduled:' + S.coupleId, arr); renderPending(); }; });
+    box.innerHTML = '<div class="notice-bar" style="flex-wrap:wrap">\U0001F570 Scheduled: ' + items.map((i, idx) =>
+      '<span>' + (i.surprise ? '\U0001F381 ' : '') + '\u201C' + esc(i.preview || '\u2026') + '\u201D \u2014 ' + new Date(i.sendAtMs).toLocaleString('en-US') + ' <button data-cancel="' + idx + '">Cancel</button></span>').join('') + '</div>' +
+      '<p class="tiny muted" style="padding:0 6px">Scheduled messages are sent at their time by the server \u2014 this app does not need to be open.</p>';
+    box.querySelectorAll('[data-cancel]').forEach((b) => { b.onclick = async () => {
+      const arr = ls.get('scheduled:' + S.coupleId, []);
+      const item = arr[Number(b.dataset.cancel)];
+      if (item && item.serverId) await api.del('/scheduled_messages?id=eq.' + item.serverId).catch((e) => toast(e.message));
+      arr.splice(Number(b.dataset.cancel), 1);
+      ls.set('scheduled:' + S.coupleId, arr);
+      renderPending();
+    }; });
   }
   async function scheduleDlg() {
     const text = document.getElementById('c-input').value.trim();
     if (!text) { toast('Type the message first, then tap Schedule.'); return; }
-    const sh = sheet('<h3>Schedule this message</h3><p class="muted">It will be sent while this page is open — the same honest limit as the Android app.</p>' +
+    const sh = sheet('<h3>Schedule this message</h3><p class="muted">It will be sent at that time \u2014 even if this app is closed.</p>' +
       '<label class="field">Send at</label><input type="datetime-local" id="sc-when">' +
       '<div class="switch-row"><span class="lbl">Surprise (hidden until tapped)</span><span class="switch"><input type="checkbox" id="sc-surprise"><span class="track"></span></span></div>' +
       '<button class="btn btn-primary" id="sc-save">Schedule</button><button class="btn btn-ghost" id="sc-no">Cancel</button>');
@@ -1549,14 +1567,18 @@ registerScreen('chat', (param) => {
       if (!when) { toast('Please pick a date and time.'); return; }
       const sendAtMs = new Date(when).getTime();
       if (sendAtMs <= Date.now()) { toast('Please pick a future time.'); return; }
-      const sealed = await sealText(text);
-      if (!sealed) { toast('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
-      const arr = ls.get('scheduled:' + S.coupleId, []);
-      arr.push({ sendAtMs, surprise: sh.querySelector('#sc-surprise').checked, sealed, preview: text.substring(0, 40) });
-      ls.set('scheduled:' + S.coupleId, arr);
-      document.getElementById('c-input').value = '';
-      closeSheet(); renderPending();
-      toast('Scheduled. Keep this page open around that time.');
+      if (!e2eeReady()) { toast('Your partner\u2019s message key isn\u2019t available yet \u2014 ask your partner to open the app once, then try again.'); return; }
+      const surprise = sh.querySelector('#sc-surprise').checked;
+      try {
+        const sealed = await E.sealChatText(S.myPriv, S.partnerPub, surprise ? 'USSURPRISE1:' + text : text);
+        const rows = await api.post('/scheduled_messages', { couple_id: S.coupleId, sender_id: uid(), ciphertext: sealed.wire, nonce: sealed.nonce, thread: 'main', send_at: new Date(sendAtMs).toISOString() }, 'return=representation');
+        const arr = ls.get('scheduled:' + S.coupleId, []);
+        arr.push({ sendAtMs, surprise, preview: text.substring(0, 40), serverId: rows[0].id });
+        ls.set('scheduled:' + S.coupleId, arr);
+        document.getElementById('c-input').value = '';
+        closeSheet(); renderPending();
+        toast('Scheduled. It will be sent at that time \u2014 even if this app is closed.');
+      } catch (e) { toast(e.message); }
     };
   }
   async function sendText() {
@@ -1926,6 +1948,7 @@ registerScreen('chat', (param) => {
       '<div class="emoji-row">' + REACTIONS.map((e) => '<button data-react="' + e + '">' + e + '</button>').join('') + '</div>' +
       '<button class="sheet-btn" id="ma-reply">↩ Reply</button>' +
       (canEdit ? '<button class="sheet-btn" id="ma-edit">✏ Edit (within 15 minutes)</button>' : '') +
+      (m.mine ? '<button class="sheet-btn danger" id="ma-delall">🗑 Delete for everyone</button>' : '') +
       '<button class="sheet-btn danger" id="ma-hide">Delete for me (this browser only)</button>' +
       '<button class="btn btn-ghost" id="ma-x">Cancel</button>');
     sh.querySelector('#ma-x').onclick = closeSheet;
@@ -1959,6 +1982,16 @@ registerScreen('chat', (param) => {
       hidden.add(m.serverId);
       ls.set('hiddenMsgs:' + S.coupleId, [...hidden]);
       closeSheet(); load();
+    };
+    const delAllBtn = sh.querySelector('#ma-delall');
+    if (delAllBtn) delAllBtn.onclick = async () => {
+      closeSheet();
+      if (!await confirmDlg('Delete this message for both of you?', 'It will be removed from your chat and ' + (S.partner ? S.partner.display_name : 'your partner') + '’s chat. This cannot be undone.', 'Delete for everyone')) return;
+      try {
+        await api.del('/messages?id=eq.' + m.serverId);
+        toast('Message deleted for both of you.');
+        load();
+      } catch (e) { toast(e.message); }
     };
   }
   renderShell();
@@ -2075,7 +2108,7 @@ registerScreen('settings', () => {
       // Security
       '<h2 class="section">Security</h2><div class="card" id="s-security"></div>' +
       // Platform notes
-      '<h2 class="section">Good to know</h2><div class="card"><p class="small muted" style="margin:0">This web version has no home-screen widget — the Home tab shows the same information. Notifications and scheduled messages work while this page is open. Add this page to your home screen to open it like an app.</p><p class="tiny muted" style="margin:8px 0 0">Build ' + BUILD_ID + '</p></div>' +
+      '<h2 class="section">Good to know</h2><div class="card"><p class="small muted" style="margin:0">This web version has no home-screen widget — the Home tab shows the same information. Notifications work while this page is open. Scheduled messages are sent at their time even when the app is closed. Add this page to your home screen to open it like an app.</p><p class="tiny muted" style="margin:8px 0 0">Build ' + BUILD_ID + '</p></div>' +
       // Account
       '<h2 class="section">Account</h2><div class="card">' +
       '<button class="btn btn-ghost" id="s-logout">Sign out</button><div style="height:10px"></div>' +
