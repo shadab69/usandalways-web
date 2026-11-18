@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.10';
+const BUILD_ID = '2026-11-18.11';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -859,6 +859,9 @@ registerScreen('home', () => {
   html += '<div class="card"><h2 class="section" style="margin-top:0">Just the two of you</h2><div style="height:8px"></div>' +
     '<div class="btn-row"><button class="btn btn-soft" id="h-chat">💬 Open your private chat</button></div><div style="height:10px"></div>' +
     '<div class="btn-row"><button class="btn btn-soft" id="h-checkin">🌸 Daily check-in</button><button class="btn btn-soft" id="h-room">🏠 Open our room</button></div>' +
+    '<div style="height:10px"></div><div class="btn-row"><button class="btn btn-soft" id="h-bucket">✨ Our bucket list</button></div>' +
+    '<p class="small" id="home-bucket-next" style="margin:8px 0 0">Loading your dreams…</p>' +
+    '<p class="tiny muted" id="home-bucket-sub" style="margin:2px 0 0">Things you want to do together one day</p>' +
     '<p class="tiny muted" style="margin:10px 0 0">You can schedule a message from the chat screen; it is sent while this page is open.</p></div>';
   html += '<div class="grow"></div></div>';
   appEl().innerHTML = html;
@@ -884,7 +887,9 @@ registerScreen('home', () => {
   document.getElementById('h-chat').onclick = () => showScreen('chat');
   document.getElementById('h-checkin').onclick = () => showScreen('checkin');
   document.getElementById('h-room').onclick = () => showScreen('room');
-  if (S.partner) loadHomeLive();
+  const hb = document.getElementById('h-bucket');
+  if (hb) hb.onclick = () => showScreen('bucket');
+  if (S.partner) { loadHomeLive(); loadHomeBucket(); }
 });
 
 // ---------------------------------------------------------------- Home — Morning Cream layout
@@ -971,6 +976,13 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
     '<button class="cream-row" id="' + r[0] + '"><span class="cream-marker"></span>' +
     '<span class="cream-tile ' + tileCycle[i % 3] + '">' + r[1] + '</span><span class="cream-row-text"><span class="cream-row-name">' + r[2] + '</span>' +
     '<span class="cream-row-sub">' + r[3] + '</span></span><span class="cream-chev">›</span></button>').join('') + '</div>';
+  // Bucket list on Home: next dream + counts, filled live; tap → the list.
+  if (S.partner) {
+    html += '<div class="cream-sec-head"><h2 class="cream-sec-title">Our bucket list</h2><button class="cream-sec-link" id="h-bucket-all">See all</button></div>';
+    html += '<div class="cream-list"><button class="cream-row" id="h-bucket"><span class="cream-marker"></span>' +
+      '<span class="cream-tile tile-peach">✨</span><span class="cream-row-text"><span class="cream-row-name" id="cream-bucket-next">Loading your dreams…</span>' +
+      '<span class="cream-row-sub" id="cream-bucket-sub">Things you want to do together one day</span></span><span class="cream-chev">›</span></button></div>';
+  }
   // Floating compose button — a real action: it opens the chat.
   html += '<button class="cream-fab" id="h-fab" aria-label="Write a message">✎</button>';
   html += '<div class="grow"></div></div>';
@@ -1001,9 +1013,35 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
       }
       tap.disabled = false;
     };
+    const bk = document.getElementById('h-bucket');
+    if (bk) bk.onclick = () => showScreen('bucket');
+    const bka = document.getElementById('h-bucket-all');
+    if (bka) bka.onclick = () => showScreen('bucket');
     loadHomeLive();
     loadCreamTap();
+    loadHomeBucket();
   }
+}
+/** Fills the Home bucket-list line (both designs) with the real next
+ * dream and the counts; titles are sealed, so they are opened here
+ * with the couple key exactly like the Bucket List screen does. */
+async function loadHomeBucket() {
+  try {
+    const rows = await api.get('/bucket_items?couple_id=eq.' + S.coupleId + '&order=id.asc&select=id,title,done');
+    const nextEl = document.getElementById('cream-bucket-next') || document.getElementById('home-bucket-next');
+    if (!nextEl) return;
+    const subEl = document.getElementById('cream-bucket-sub') || document.getElementById('home-bucket-sub');
+    const done = rows.filter((r) => r.done).length;
+    const next = rows.find((r) => !r.done);
+    if (!rows.length) {
+      nextEl.textContent = 'Dream your first one together';
+      if (subEl) subEl.textContent = 'Tap to start your list';
+      return;
+    }
+    if (next) nextEl.textContent = 'Next: ' + ((await openText(next.title)) || 'A dream waiting to be opened');
+    else nextEl.textContent = 'Every dream done — time for new ones';
+    if (subEl) subEl.textContent = rows.length + (rows.length === 1 ? ' dream' : ' dreams') + ' · ' + done + ' done';
+  } catch { /* keep the placeholder line */ }
 }
 /** Fills the cream Tap to Feel sub-line with the real last tap (events table). */
 async function loadCreamTap() {
