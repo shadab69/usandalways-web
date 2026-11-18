@@ -638,3 +638,8 @@ html[data-theme="cream"] .hb-act, html[data-theme="bento"] .hb-act {
 html[data-theme="cream"] .hb-row .cream-row-name, html[data-theme="bento"] .hb-row .cream-row-name {
   display: block; -webkit-line-clamp: unset; overflow: visible;
 }
+
+/* Chat bubbles get a stronger, unmissable tap dip (build .24): the
+   generic .pressed scale alone was too subtle on a wide bubble. */
+.bubble { transition: transform .15s ease, filter .15s ease; }
+.bubble.pressed { transform: scale(.95) !important; filter: brightness(.85) !important; }

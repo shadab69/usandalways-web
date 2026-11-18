@@ -326,6 +326,7 @@ function ludoScreen() {
     } catch (e) { toast(e.message); }
     saving = false;
   };
+  let rendered = false;
   const load = async () => {
     if (saving) return; // bug #9: skip this poll cycle while a save is in flight
     let row = await loadGame('ludo');
@@ -337,7 +338,16 @@ function ludoScreen() {
       row = await loadGame('ludo');
       if (row && row.id !== game.id) game = row;
     }
-    if (row) { game = row; st = Ludo.parse(row.state.s || ''); p0 = row.state.p0 || ''; }
+    if (row) {
+      const parsed = Ludo.parse(row.state.s || '');
+      // Do not rebuild the board when nothing changed: the 3 s poll
+      // used to replace every token element constantly, and a rebuild
+      // landing mid-tap ate the tap — a rolled 6 looked unmoveable.
+      const unchanged = rendered && game && row.id === game.id && Ludo.serialize(parsed) === Ludo.serialize(st) && (row.state.p0 || '') === p0;
+      game = row; st = parsed; p0 = row.state.p0 || '';
+      if (unchanged) return;
+    }
+    rendered = true;
     render();
   };
   const doMove = async (token) => {

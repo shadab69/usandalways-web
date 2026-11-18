@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.23';
+const BUILD_ID = '2026-11-18.24';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
