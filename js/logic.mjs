@@ -51,6 +51,75 @@ export function latestRowPerUser(rows, myId) {
   return { mine, theirs };
 }
 
+// ---- Realtime + unread badge upgrade (2026-11-18) ---------------------------
+
+// Tiny FNV-1a 32-bit hash (hex) — a cheap fingerprint for long strings.
+export function fnv1aHex(str) {
+  let h = 0x811c9dc5;
+  const s = String(str ?? '');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+// Signature of everything that determines a message row's DECRYPTED
+// content: the row id, its type and its sealed bytes. read_at / edited
+// are deliberately excluded — they never change the plaintext (an edit
+// always arrives with fresh ciphertext), so a read receipt must not
+// force a re-decrypt of the whole history on every poll.
+export function rowDecryptSignature(row) {
+  if (!row) return '';
+  const ct = String(row.ciphertext ?? '');
+  const nn = String(row.nonce ?? '');
+  return [row.id, row.type || '', ct.length, fnv1aHex(ct), fnv1aHex(nn)].join(':');
+}
+
+// PostgREST count responses carry the total in the Content-Range
+// header: "0-9/42" for a ranged GET, "*/42" for a HEAD count. Returns
+// the total, or null when the header is missing or the total is not a
+// plain number (e.g. "*").
+export function parseContentRangeTotal(header) {
+  if (!header || typeof header !== 'string') return null;
+  const slash = header.lastIndexOf('/');
+  if (slash < 0) return null;
+  const total = header.slice(slash + 1).trim();
+  if (!/^\d+$/.test(total)) return null;
+  return parseInt(total, 10);
+}
+
+// What the Chat tab badge shows for an unread count: hidden at 0, the
+// number itself up to 99, then "99+".
+export function badgeLabel(count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  if (n === 0) return '';
+  return n > 99 ? '99+' : String(n);
+}
+
+// Reconnect backoff for the realtime socket: 1s, 2s, 4s, 8s … capped
+// at 30s so a dead network never spins the radio.
+export function nextReconnectDelay(attempt) {
+  const a = Math.max(0, Math.floor(Number(attempt) || 0));
+  return Math.min(1000 * 2 ** a, 30000);
+}
+
+// What to do when a realtime event for the messages table arrives:
+//   'reload' — the chat screen is open: re-run its load (diff-rendered
+//              and decrypt-cached, so this is cheap).
+//   'notify' — a partner message landed while another screen is open:
+//              refresh the badge and use the usual new-message notice.
+//   'badge'  — a partner change that can only move the count (an edit
+//              or a read receipt while another screen is open).
+//   'ignore' — my own change while another screen is open: my own
+//              messages never count as unread.
+export function realtimeMessageAction({ screen, eventType, senderId, myId }) {
+  if (screen === 'chat') return 'reload';
+  const fromPartner = !!senderId && !!myId && senderId !== myId;
+  if (!fromPartner) return 'ignore';
+  return eventType === 'INSERT' ? 'notify' : 'badge';
+}
+
 // ---- Bug #3: chat render signature ------------------------------------------
 // A stable string describing everything renderMessages() paints. The
 // chat poll compares signatures and skips the DOM rebuild when nothing

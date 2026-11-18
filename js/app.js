@@ -5,7 +5,8 @@
 
 import * as api from './api.mjs';
 import * as E from './crypto.mjs';
-import { chatSignature, sniffAudioType } from './logic.mjs';
+import { chatSignature, sniffAudioType, rowDecryptSignature, realtimeMessageAction, badgeLabel } from './logic.mjs';
+import { createRealtimeClient } from './realtime.mjs';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -110,6 +111,7 @@ const TABS = [
 ];
 export function showScreen(name, param) {
   stopPollers();
+  if (name !== 'chat') chatScreenReload = null;
   S.screen = name; S.screenParam = param || null;
   const bar = document.getElementById('tabbar');
   const mainScreens = ['home', 'chat', 'together', 'memories', 'settings'];
@@ -120,6 +122,7 @@ export function showScreen(name, param) {
     bar.innerHTML = TABS.map(([n, ico, label]) =>
       '<button data-tab="' + n + '" class="' + (tabOf[name] === n ? 'active' : '') + '"><span class="tab-ico">' + ico + '</span>' + label + '</button>').join('');
     bar.querySelectorAll('button').forEach((b) => { b.onclick = () => showScreen(b.dataset.tab); });
+    renderUnreadBadge();
   }
   const fn = Screens[name];
   appEl().scrollTop = 0;
@@ -274,6 +277,7 @@ export async function loadCouple() {
   // Bug #8: when the couple link appears mid-session, prime the global
   // poll cursors first so the couple's history is not replayed as "new".
   if (!hadCouple && S.coupleId) await primeCursors();
+  syncRealtime();
 }
 let coupleLoadInFlight = false;
 /** Bug #1: while unlinked, quietly re-check whether the partner has joined; on the transition, re-render the current screen. */
@@ -599,12 +603,15 @@ function startGlobalLoops() {
         const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&id=gt.' + S.lastMsgIdSeen + '&order=id.asc&limit=20&select=id,sender_id');
         for (const m of ms) {
           S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, m.id);
-          if (S.msgsPrimed && m.sender_id !== uid()) notify('New message', (S.partner ? S.partner.display_name : 'Your partner') + ' sent you a message.');
+          // While realtime is connected it delivers (and notifies)
+          // instantly — the poller must not notify a second time.
+          if (S.msgsPrimed && m.sender_id !== uid() && !rtConnected) notify('New message', (S.partner ? S.partner.display_name : 'Your partner') + ' sent you a message.');
         }
       } else {
         const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
         if (ms.length) S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, ms[0].id);
       }
+      refreshUnreadBadge();
     } catch { /* next tick retries */ }
   }, 5000);
   // Scheduled + surprise messages: sent while this page is open (same honest limit as Android).
@@ -647,6 +654,84 @@ export async function sendChatTextNow(wirePlain, thread, replyToId, expiresAtMs)
   return rows[0];
 }
 
+// ---------------------------------------------------------------- realtime + unread badge
+// WhatsApp-style delivery while the app is open: a Supabase Realtime
+// socket (js/realtime.mjs, hand-written Phoenix protocol) pushes new
+// messages in instantly, and a server-counted unread badge sits on the
+// Chat tab. The pre-existing polling stays as the fallback — while the
+// socket is live the chat poll relaxes and the global poller stops
+// double-notifying; when it drops, behaviour is exactly as before.
+let rtClient = null;
+let rtConnected = false;
+let chatScreenReload = null; // set while the chat screen is mounted
+let unreadCount = 0;
+let badgeInFlight = false;
+let badgePending = false;
+
+/** Applies an unread count everywhere it shows: the Chat tab badge and the installed-app icon badge. */
+function setUnreadCount(n) {
+  unreadCount = Math.max(0, Math.floor(Number(n) || 0));
+  renderUnreadBadge();
+  try {
+    if (unreadCount > 0 && navigator.setAppBadge) navigator.setAppBadge(unreadCount);
+    else if (navigator.clearAppBadge) navigator.clearAppBadge();
+  } catch { /* app badging is best-effort */ }
+}
+export function renderUnreadBadge() {
+  const btn = document.querySelector('#tabbar button[data-tab="chat"]');
+  if (!btn) return;
+  const label = badgeLabel(unreadCount);
+  let badge = btn.querySelector('.tab-badge');
+  if (!label) { if (badge) badge.remove(); return; }
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'tab-badge';
+    btn.appendChild(badge);
+  }
+  badge.textContent = label;
+}
+/** Recomputes the unread count from the server — never guessed locally, so it cannot drift or flicker backwards. */
+export async function refreshUnreadBadge() {
+  if (!S.me || !S.coupleId) { setUnreadCount(0); return; }
+  if (badgeInFlight) { badgePending = true; return; }
+  badgeInFlight = true;
+  try {
+    const n = await api.countRows('/messages?couple_id=eq.' + S.coupleId + '&sender_id=neq.' + uid() + '&read_at=is.null&select=id');
+    if (typeof n === 'number') setUnreadCount(n);
+  } catch { /* keep the last known count; the next tick retries */ }
+  badgeInFlight = false;
+  if (badgePending) { badgePending = false; refreshUnreadBadge(); }
+}
+function realtimeCatchUp() {
+  // On (re)connect, pull anything the socket missed while it was down.
+  if (chatScreenReload && S.screen === 'chat') chatScreenReload();
+  refreshUnreadBadge();
+}
+function onRealtimeMessage(evt) {
+  if (evt.record && evt.record.id) S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, evt.record.id);
+  const action = realtimeMessageAction({
+    screen: S.screen, eventType: evt.type,
+    senderId: evt.record ? evt.record.sender_id : null, myId: uid(),
+  });
+  if (action === 'reload' && chatScreenReload) chatScreenReload();
+  if (action === 'notify') notify('New message', (S.partner ? S.partner.display_name : 'Your partner') + ' sent you a message.');
+  refreshUnreadBadge();
+}
+/** Keeps the realtime subscription pointed at the current couple. Safe to call any time. */
+function syncRealtime() {
+  if (!S.unlocked || !uid()) { if (rtClient) rtClient.setCouple(''); return; }
+  if (!rtClient) {
+    rtClient = createRealtimeClient({
+      onEvent: onRealtimeMessage,
+      onStatus: (connected) => {
+        rtConnected = connected;
+        if (connected) realtimeCatchUp();
+      },
+    });
+  }
+  rtClient.setCouple(S.coupleId || '');
+}
+
 // ---------------------------------------------------------------- enter the app
 export async function enterApp() {
   if (!S.me) {
@@ -657,6 +742,7 @@ export async function enterApp() {
   await loadCouple();
   await fetchRemoteConfig();
   startGlobalLoops();
+  refreshUnreadBadge();
   showScreen('home');
 }
 
@@ -788,6 +874,7 @@ registerScreen('chat', (param) => {
     photoUrls: new Map(),
     voiceUrls: new Map(),   // bug #3: decrypted voice object URLs per server id
     revealedIds: new Set(), // bug #3: revealed surprises survive re-renders
+    viewCache: new Map(),   // realtime upgrade: decrypted views by server id, keyed with rowDecryptSignature
     lastSig: null,          // bug #3: last rendered signature (diffing)
     forceBottom: false,     // scroll to bottom on next render (own send)
     oldestId: 0,            // bug #15: paging cursor for "Load earlier"
@@ -1061,12 +1148,26 @@ registerScreen('chat', (param) => {
         // of bug #3.
         displayText = '';
       } else {
-        try {
-          const plain = await openChatWireRetry(r.ciphertext, r.nonce, r.type);
-          if (typeof plain === 'string' && plain.startsWith('USPHOTO1:')) { kind = 'photo'; photoPath = plain.substring('USPHOTO1:'.length); displayText = ''; }
-          else if (typeof plain === 'string' && plain.startsWith('USSURPRISE1:')) { surprise = true; displayText = plain.substring('USSURPRISE1:'.length); }
-          else displayText = String(plain);
-        } catch { /* keep the locked placeholder */ }
+        // Realtime upgrade: reuse the decrypted view while the row's
+        // sealed bytes are unchanged — a poll (or a realtime reload)
+        // then only decrypts new or edited rows instead of the whole
+        // window every tick. Only successful opens are cached: a
+        // locked placeholder must be retried on the next load so a
+        // healed partner key (bug #2) can still open the message.
+        const sig = rowDecryptSignature(r);
+        const cached = state.viewCache.get(r.id);
+        if (cached && cached.sig === sig) {
+          kind = cached.kind; displayText = cached.displayText;
+          photoPath = cached.photoPath; surprise = cached.surprise;
+        } else {
+          try {
+            const plain = await openChatWireRetry(r.ciphertext, r.nonce, r.type);
+            if (typeof plain === 'string' && plain.startsWith('USPHOTO1:')) { kind = 'photo'; photoPath = plain.substring('USPHOTO1:'.length); displayText = ''; }
+            else if (typeof plain === 'string' && plain.startsWith('USSURPRISE1:')) { surprise = true; displayText = plain.substring('USSURPRISE1:'.length); }
+            else displayText = String(plain);
+            state.viewCache.set(r.id, { sig, kind, displayText, photoPath, surprise });
+          } catch { /* keep the locked placeholder */ }
+        }
       }
       view.push({
         serverId: r.id, mine, kind, displayText, photoPath, surprise,
@@ -1078,6 +1179,13 @@ registerScreen('chat', (param) => {
       if (!mine && !r.read_at && prefs().readReceiptsOff !== true) {
         api.patch('/messages?id=eq.' + r.id, { read_at: new Date().toISOString() }).catch(() => {});
       }
+    }
+    // Keep the decrypt cache bounded: drop entries for messages that
+    // are neither in this page nor in the loaded (paged) history.
+    if (state.viewCache.size > 400) {
+      const keep = new Set(rowsDesc.map((r) => r.id));
+      for (const m of state.messages) keep.add(m.serverId);
+      for (const k of [...state.viewCache.keys()]) if (!keep.has(k)) state.viewCache.delete(k);
     }
     return view;
   }
@@ -1118,6 +1226,9 @@ registerScreen('chat', (param) => {
       mergeView(await buildView(rows));
       renderMessages();
       updateEarlierBtn();
+      // This load marked the visible partner messages read — refresh
+      // the unread badge from the server count so it clears.
+      refreshUnreadBadge();
     } catch (e) { status('Loading failed: ' + e.message); }
   }
   /** Bug #15: page in the next 100 older messages above the loaded window. */
@@ -1275,7 +1386,16 @@ registerScreen('chat', (param) => {
   }
   renderShell();
   load();
-  every(4000, load);
+  chatScreenReload = () => { load(); };
+  // Realtime upgrade: while the socket is live, new messages arrive
+  // through it instantly, so this poll relaxes to a ~16 s safety net.
+  // When the socket is down, the original 4 s poll runs unchanged.
+  let chatPollTicks = 0;
+  every(4000, async () => {
+    chatPollTicks++;
+    if (rtConnected && chatPollTicks % 4 !== 0) return;
+    await load();
+  });
   // Typing indicator fade — registered with every() (bug #14) so
   // showScreen() clears it instead of leaking one interval per visit.
   every(1000, async () => {

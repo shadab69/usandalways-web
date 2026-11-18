@@ -3,6 +3,8 @@
 // is public by design; Row Level Security protects every table, and all
 // real access uses the signed-in user's own access token.
 
+import { parseContentRangeTotal } from './logic.mjs';
+
 export const SUPABASE_URL = 'https://nuftteaifpafarmhqdtd.supabase.co';
 export const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51ZnR0ZWFpZnBhZmFybWhxZHRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3NDg0MzMsImV4cCI6MjExMDMyNDQzM30.0oiugE7cvDFJdnyNPMcy-T6K2Y4yui-u2E8jFtsyP7A';
 
@@ -112,6 +114,17 @@ export const patch = (path, body) => rest(path, { method: 'PATCH', body });
 export const del = (path) => rest(path, { method: 'DELETE' });
 export async function rpc(name, args) {
   return post('/rpc/' + name, args || {}, undefined);
+}
+
+// ---------- Counts ----------
+/** Exact row count for a REST query without fetching the rows: a HEAD
+ * request with Prefer: count=exact, read from the Content-Range header.
+ * Resolves the total, or null when the server did not report one. */
+export async function countRows(path) {
+  await ensureFreshToken();
+  const res = await rawFetch('/rest/v1' + path, { method: 'HEAD', headers: { Prefer: 'count=exact' } });
+  if (!res.ok) throw new Error('Count failed (' + res.status + ')');
+  return parseContentRangeTotal(res.headers.get('content-range'));
 }
 
 // ---------- Storage (private 'media' bucket) ----------
