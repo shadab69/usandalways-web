@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.12';
+const BUILD_ID = '2026-11-18.13';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -129,7 +129,7 @@ export function showScreen(name, param) {
     const tabOf = { home: 'home', chat: 'chat', voice: 'chat', together: 'together', playlist: 'together', listen: 'together', watch: 'together', draw: 'together', read: 'together', memories: 'memories', album: 'memories', journey: 'memories', bucket: 'memories', memoriesView: 'memories', checkin: 'memories', conflict: 'memories', gifts: 'memories', settings: 'settings', room: 'home', games: 'together', ttt: 'together', ludo: 'together', spin: 'together', pet: 'together' };
     bar.innerHTML = TABS.map(([n, ico, label]) =>
       '<button data-tab="' + n + '" class="' + (tabOf[name] === n ? 'active' : '') + '"><span class="tab-ico">' + ico + '</span>' + label + '</button>').join('');
-    bar.querySelectorAll('button').forEach((b) => { b.onclick = () => showScreen(b.dataset.tab); });
+    bar.querySelectorAll('button').forEach((b) => { b.onclick = () => { playTabTing(); showScreen(b.dataset.tab); }; });
     renderUnreadBadge();
   }
   const fn = Screens[name];
@@ -360,6 +360,25 @@ export function playTing() {
     note(1760.0, t0 + 0.09, 0.55, 0.16); // A6 — the bright "ting"
   } catch { /* sound is best-effort */ }
 }
+/** A shorter, softer single-note "tinn" for bottom-tab taps — the
+ * user asked for a small sound when switching tabs so the tap feels
+ * alive. Shares the Settings sound switch with the message ting. */
+export function playTabTing() {
+  try {
+    if (prefs().msgSound === false) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!tingCtx) tingCtx = new AC();
+    if (tingCtx.state === 'suspended') tingCtx.resume().catch(() => {});
+    const t0 = tingCtx.currentTime;
+    const o = tingCtx.createOscillator(); const g = tingCtx.createGain();
+    o.type = 'sine'; o.frequency.value = 1567.98; // G6
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.10, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+    o.connect(g); g.connect(tingCtx.destination); o.start(t0); o.stop(t0 + 0.2);
+  } catch { /* sound is best-effort */ }
+}
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('pointerdown', () => {
     try {
@@ -369,6 +388,28 @@ if (typeof window !== 'undefined' && window.addEventListener) {
       if (tingCtx.state === 'suspended') tingCtx.resume().catch(() => {});
     } catch { /* priming is best-effort */ }
   }, { passive: true });
+}
+/* Guaranteed tap feedback: CSS :active alone shows only while the
+ * finger is down — too brief to notice on a quick tap, and on the
+ * user's phone it was visible only in Settings. This adds a .pressed
+ * class on pointerdown and keeps it until release (at least ~180ms),
+ * so every button and row visibly dips on every tap, everywhere. */
+if (typeof window !== 'undefined' && window.addEventListener) {
+  const pressStart = new WeakMap();
+  document.addEventListener('pointerdown', (e) => {
+    const t = e.target && e.target.closest ? e.target.closest('button, .hub-row, .list-row, .switch-row, .cream-ava, .partner-ava') : null;
+    if (!t || t.disabled) return;
+    pressStart.set(t, Date.now());
+    t.classList.add('pressed');
+  }, { passive: true });
+  const releasePress = () => {
+    document.querySelectorAll('.pressed').forEach((el) => {
+      const wait = Math.max(0, 180 - (Date.now() - (pressStart.get(el) || 0)));
+      setTimeout(() => el.classList.remove('pressed'), wait);
+    });
+  };
+  document.addEventListener('pointerup', releasePress, { passive: true });
+  document.addEventListener('pointercancel', releasePress, { passive: true });
 }
 
 // ---------------------------------------------------------------- onboarding + auth
@@ -1038,7 +1079,7 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
   }
   // Floating compose button — a real action: it opens the chat.
   html += '<button class="cream-fab" id="h-fab" aria-label="Write a message">✎</button>';
-  html += '<div class="grow"></div></div>';
+  html += '<div class="grow"></div><div style="height:84px;flex:none"></div></div>';
   appEl().innerHTML = html;
   document.getElementById('h-theme').onclick = () => { setTheme(nextTheme()); showScreen('home'); };
   const annX = document.getElementById('h-ann-x');
@@ -1908,7 +1949,7 @@ registerScreen('settings', () => {
       '<p class="tiny muted">While this page is open, it checks every few seconds for new messages and taps, and can show browser notifications. This is not push: when the page is closed, nothing arrives until you open it again.' + (rcConnectionService() ? '' : ' (Currently turned off by the couple’s server settings.)') + '</p>' +
       '<div class="btn-row"><button class="btn btn-soft" id="s-notif">Allow browser notifications</button></div>' +
       '<p class="tiny muted" id="s-notif-status" style="margin:6px 0 0"></p>' +
-      '<div class="switch-row"><span class="lbl">Message sound — a soft “ting” when a message arrives</span><span class="switch"><input type="checkbox" id="s-sound" ' + (p.msgSound === false ? '' : 'checked') + '><span class="track"></span></span></div>' +
+      '<div class="switch-row"><span class="lbl">Sounds — a soft “ting” for new messages and tab taps</span><span class="switch"><input type="checkbox" id="s-sound" ' + (p.msgSound === false ? '' : 'checked') + '><span class="track"></span></span></div>' +
       '<label class="field">Vibration pattern for taps</label><div class="chips" id="s-vib">' +
       ['Gentle', 'Heartbeat', 'Excited'].map((v) => '<button class="chip ' + (vibPatternName() === v ? 'selected' : '') + '" data-vib="' + v + '">' + v + '</button>').join('') + '</div></div>' +
       // Security

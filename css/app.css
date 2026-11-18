@@ -166,7 +166,7 @@ html[data-theme="cream"] .cream-row {
 }
 html[data-theme="cream"] .cream-row:last-child { border-bottom: 0; }
 html[data-theme="cream"] .cream-row.static { cursor: default; }
-html[data-theme="cream"] .cream-row:active { transform: scale(.995); }
+html[data-theme="cream"] .cream-row:active { transform: scale(.97); filter: brightness(.96); }
 html[data-theme="cream"] .cream-marker {
   position: relative; z-index: 1; width: 26px; height: 26px; flex: none;
   border-radius: 50%; border: 2px solid #E7CFAF; background: var(--surface);
@@ -183,12 +183,12 @@ html[data-theme="cream"] .cream-tile.tile-mint { background: #DDE8C9; }
 html[data-theme="cream"] .cream-tile.tile-pink { background: #F6D5DD; }
 html[data-theme="cream"] .cream-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 html[data-theme="cream"] .cream-row-name {
-  font-size: 15.5px; font-weight: 700; color: #3B2A20;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 15.5px; font-weight: 700; color: #3B2A20; line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 html[data-theme="cream"] .cream-row-sub {
-  font-size: 12.5px; color: var(--muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 12.5px; color: var(--muted); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 html[data-theme="cream"] .cream-chev { color: #C89B72; font-size: 20px; font-weight: 700; flex: none; }
 html[data-theme="cream"] .cream-fab {
@@ -449,3 +449,9 @@ iframe.map { width: 100%; height: 240px; border: 1px solid var(--border); border
 .ava-view .ava-full { width: 240px; height: 240px; border-radius: 50%; object-fit: cover; display: block; margin: 8px auto 0; }
 .ava-view .ava-initials { display: flex; align-items: center; justify-content: center; font-size: 84px; font-weight: 700; background: var(--surfaceSoft); color: var(--accentInk); }
 .ava-view .btn { width: 100%; margin-top: 8px; }
+
+/* ---- Guaranteed press feedback (.pressed is added by script on
+   pointerdown and kept until release, min ~180ms): every tap visibly
+   dips, even where :active alone is too quick to see. ---- */
+button, .hub-row, .list-row, .switch-row { transition: transform .15s ease, filter .15s ease, background-color .15s ease; }
+.pressed { transform: scale(.93) !important; filter: brightness(.92) !important; }
