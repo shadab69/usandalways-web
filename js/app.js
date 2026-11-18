@@ -1092,6 +1092,18 @@ registerScreen('chat', (param) => {
     if (b) b.hidden = !state.hasEarlier;
   }
   async function load() {
+    // Thread isolation (sweep 2026-11-18): mergeView() only ever adds
+    // rows, so without a reset the main and secret threads mix in one
+    // list — regular messages showed inside the secret view and vice
+    // versa. When the thread changes, start from an empty view.
+    if (state.viewThread !== state.thread) {
+      state.viewThread = state.thread;
+      state.messages = [];
+      state.oldestId = null;
+      state.hasEarlier = false;
+      state.earlierExhausted = false;
+      state.lastSig = '';
+    }
     // Bug #2: the partner's public key is re-fetched alongside the
     // message poll, so a key rotation on their side heals this session
     // within one poll cycle instead of breaking it until re-login.
@@ -1156,6 +1168,16 @@ registerScreen('chat', (param) => {
       return '<div class="bubble-row ' + (m.mine ? 'me' : 'her') + '"><button class="bubble" data-msg="' + i + '">' + inner + '</button>' + reacts + '<div class="bubble-meta">' + esc(meta) + '</div></div>';
     }).join('');
     list.querySelectorAll('[data-msg]').forEach((b) => { b.onclick = () => msgActions(Number(b.dataset.msg)); });
+    // Photo/voice bubbles: a tap does their own thing (view / play),
+    // so the message menu (react/reply) opens on a long press instead.
+    list.querySelectorAll('[data-msg]').forEach((b) => {
+      const m = state.messages[Number(b.dataset.msg)];
+      if (!m || (m.kind !== 'photo' && m.kind !== 'voice')) return;
+      let timer = null;
+      b.addEventListener('pointerdown', () => { timer = setTimeout(() => { state.lastLongPress = Date.now(); msgActions(Number(b.dataset.msg)); }, 600); });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => b.addEventListener(ev, () => { if (timer) clearTimeout(timer); }));
+      b.addEventListener('contextmenu', (ev) => { ev.preventDefault(); });
+    });
     // Fill photos + voice lazily.
     state.messages.forEach(async (m, i) => {
       if (m.kind === 'photo') {
@@ -1170,7 +1192,12 @@ registerScreen('chat', (param) => {
             state.photoUrls.set(m.photoPath, url);
           }
           slot.innerHTML = '<img alt="Shared photo" src="' + url + '">';
-          slot.parentElement.onclick = () => { const sh = sheet('<img class="full" alt="Shared photo" src="' + url + '"><button class="btn btn-ghost" id="pv-x">Close</button>'); sh.querySelector('#pv-x').onclick = closeSheet; };
+          // Sweep fix 2026-11-18: the viewer opens from the image
+          // itself (stopPropagation) — it must NOT override the
+          // bubble's own click handler, which is how the message
+          // menu (react/reply) became unreachable for photos.
+          const img = slot.querySelector('img');
+          img.onclick = (ev) => { ev.stopPropagation(); if (Date.now() - (state.lastLongPress || 0) < 800) return; const sh = sheet('<img class="full" alt="Shared photo" src="' + url + '"><button class="btn btn-ghost" id="pv-x">Close</button>'); sh.querySelector('#pv-x').onclick = closeSheet; };
         } catch { slot.textContent = '📷 This photo could not be opened on this device.'; }
       } else if (m.kind === 'voice') {
         const slot = list.querySelector('[data-voice="' + i + '"]');
@@ -1189,6 +1216,9 @@ registerScreen('chat', (param) => {
           slot.innerHTML = '';
           const a = document.createElement('audio'); a.controls = true; a.src = url; a.style.minWidth = '210px';
           slot.appendChild(a);
+          // Clicks on the player controls must not bubble up to the
+          // bubble's message-menu handler.
+          slot.onclick = (ev) => { ev.stopPropagation(); };
         } catch { slot.textContent = '🎙 This voice message could not be opened on this device.'; }
       }
     });
