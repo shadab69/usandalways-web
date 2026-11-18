@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.17';
+const BUILD_ID = '2026-11-18.18';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -1043,10 +1043,10 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
   // Bucket list sits ABOVE Today (the user asked for it near the top):
   // next dream + counts, filled live; tap → the full list.
   if (S.partner) {
-    html += '<div class="cream-sec-head"><h2 class="cream-sec-title">Our bucket list</h2><button class="cream-sec-link" id="h-bucket-all">See all</button></div>';
-    html += '<div class="cream-list"><button class="cream-row" id="h-bucket"><span class="cream-marker"></span>' +
-      '<span class="cream-tile tile-peach">✨</span><span class="cream-row-text"><span class="cream-row-name" id="cream-bucket-next">Loading your dreams…</span>' +
-      '<span class="cream-row-sub" id="cream-bucket-sub">Things you want to do together one day</span></span><span class="cream-chev">›</span></button></div>';
+    html += '<div class="cream-sec-head"><h2 class="cream-sec-title">Our bucket list</h2></div>';
+    html += '<div class="cream-list" id="home-bucket-list"><p class="cream-row-sub" style="padding:12px 0">Loading your dreams…</p></div>';
+    html += '<div class="hb-form"><input type="text" id="hb-input" placeholder="Something to dream about" autocomplete="off">' +
+      '<button class="btn btn-primary hb-add" id="hb-add">Add</button></div>';
   }
   // Today: routine-style rows reusing the real check-in / tap / battery.
   if (S.partner) {
@@ -1109,13 +1109,28 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
       }
       tap.disabled = false;
     };
-    const bk = document.getElementById('h-bucket');
-    if (bk) bk.onclick = () => showScreen('bucket');
-    const bka = document.getElementById('h-bucket-all');
-    if (bka) bka.onclick = () => showScreen('bucket');
+    const hbAdd = document.getElementById('hb-add');
+    const hbInput = document.getElementById('hb-input');
+    if (hbAdd && hbInput) {
+      const doAdd = async () => {
+        const text = hbInput.value.trim();
+        if (!text) { toast('Please write the dream first.'); return; }
+        const sealed = await sealText(text);
+        if (!sealed) { toast('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
+        hbAdd.disabled = true; hbAdd.textContent = 'Adding…';
+        try {
+          await api.post('/bucket_items', { couple_id: S.coupleId, added_by: uid(), title: sealed });
+          hbInput.value = '';
+          await loadHomeBucketList();
+        } catch (e) { toast(e.message); }
+        hbAdd.disabled = false; hbAdd.textContent = 'Add';
+      };
+      hbAdd.onclick = doAdd;
+      hbInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
+    }
     loadHomeLive();
     loadCreamTap();
-    loadHomeBucket();
+    loadHomeBucketList();
   }
 }
 /** Fills the Home bucket-list line (both designs) with the real next
@@ -1138,6 +1153,67 @@ async function loadHomeBucket() {
     else nextEl.textContent = 'Every dream done — time for new ones';
     if (subEl) subEl.textContent = rows.length + (rows.length === 1 ? ' dream' : ' dreams') + ' · ' + done + ' done';
   } catch { /* keep the placeholder line */ }
+}
+/** The FULL bucket list on Home (the user asked for the whole list and
+ * full add / edit / done / delete right here, not behind a "See all"):
+ * same bucket_items table and sealed titles as the Bucket List screen,
+ * so both partners see and change the same list. Undone dreams first. */
+async function loadHomeBucketList() {
+  const box = document.getElementById('home-bucket-list');
+  if (!box || !S.partner) return;
+  try {
+    const rows = await api.get('/bucket_items?couple_id=eq.' + S.coupleId + '&order=id.asc&select=id,title,done,done_at,added_by');
+    const sorted = rows.filter((r) => !r.done).concat(rows.filter((r) => r.done));
+    if (!sorted.length) {
+      box.innerHTML = '<p class="cream-row-sub" style="padding:12px 0">No dreams yet — add your first one below.</p>';
+      return;
+    }
+    box.innerHTML = '';
+    for (const r of sorted) {
+      const title = (await openText(r.title)) || '🔒 Could not open this item on this device.';
+      const div = document.createElement('div');
+      div.className = 'cream-row hb-row';
+      div.innerHTML = '<button class="cream-marker' + (r.done ? ' done' : '') + '" data-hb-toggle="' + r.id + '" data-done="' + r.done + '" aria-label="' + (r.done ? 'Mark as not done' : 'Mark as done') + '">' + (r.done ? '✓' : '') + '</button>' +
+        '<span class="cream-row-text"><span class="cream-row-name"' + (r.done ? ' style="text-decoration:line-through"' : '') + '>' + esc(title) + '</span>' +
+        '<span class="cream-row-sub">' + (r.done && r.done_at ? 'Done ' + new Date(r.done_at).toLocaleDateString('en-US') : (r.added_by === uid() ? 'Added by you' : 'Added by ' + esc(S.partner.display_name))) + '</span></span>' +
+        '<button class="hb-act" data-hb-edit="' + r.id + '" aria-label="Edit this dream">✎</button>' +
+        '<button class="hb-act" data-hb-del="' + r.id + '" aria-label="Delete this dream">🗑</button>';
+      box.appendChild(div);
+    }
+    box.querySelectorAll('[data-hb-toggle]').forEach((b) => { b.onclick = async () => {
+      const done = b.dataset.done !== 'true';
+      await api.patch('/bucket_items?id=eq.' + b.dataset.hbToggle, { done, done_at: done ? new Date().toISOString() : null }).catch((e) => toast(e.message));
+      loadHomeBucketList();
+    }; });
+    box.querySelectorAll('[data-hb-del]').forEach((b) => { b.onclick = async () => {
+      if (!await confirmDlg('Remove this dream?', 'It will be removed from your shared bucket list for both of you.', 'Remove')) return;
+      await api.del('/bucket_items?id=eq.' + b.dataset.hbDel).catch((e) => toast(e.message));
+      loadHomeBucketList();
+    }; });
+    box.querySelectorAll('[data-hb-edit]').forEach((b) => { b.onclick = () => editHomeBucketItem(b.dataset.hbEdit, sorted); });
+  } catch { /* keep the placeholder */ }
+}
+/** Edit one Home bucket item's title (sealed again before saving). */
+async function editHomeBucketItem(id, rows) {
+  const row = rows.find((r) => String(r.id) === String(id));
+  if (!row) return;
+  const current = (await openText(row.title)) || '';
+  const sh = sheet('<h3>Edit this dream</h3><label class="field" for="hb-edit-input">Dream</label>' +
+    '<input type="text" id="hb-edit-input" value="' + esc(current) + '">' +
+    '<div style="height:10px"></div><button class="btn btn-primary" id="hb-edit-save">Save</button>' +
+    '<button class="btn btn-ghost" id="hb-edit-cancel">Cancel</button>');
+  sh.querySelector('#hb-edit-cancel').onclick = () => closeSheet();
+  sh.querySelector('#hb-edit-save').onclick = async () => {
+    const text = sh.querySelector('#hb-edit-input').value.trim();
+    if (!text) { toast('Please write the dream first.'); return; }
+    const sealed = await sealText(text);
+    if (!sealed) { toast('Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.'); return; }
+    try {
+      await api.patch('/bucket_items?id=eq.' + id, { title: sealed });
+      closeSheet();
+      loadHomeBucketList();
+    } catch (e) { toast(e.message); }
+  };
 }
 /** Fills the cream Tap to Feel sub-line with the real last tap (events table). */
 async function loadCreamTap() {
@@ -1175,6 +1251,24 @@ export function avatarInner(person) {
  * photo large, with the person's name. For the partner it first
  * re-fetches their profile, so a photo they added a minute ago shows
  * without waiting for a reload. */
+/** Saves a profile photo (a data URL) to the device's downloads. Goes
+ * through a Blob object URL because plain data-URL downloads are
+ * blocked by some mobile browsers. */
+function downloadPhoto(dataUrl) {
+  try {
+    const comma = dataUrl.indexOf(',');
+    const mime = (dataUrl.slice(0, comma).match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+    const bin = atob(dataUrl.slice(comma + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'profile-photo.jpg';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('Photo downloading — check your downloads.');
+  } catch { toast('This browser could not download the photo.'); }
+}
 export async function openAvatarViewer(person, opts) {
   let p = person;
   if (opts && opts.partner && S.partner && person && person.id === S.partner.id) {
@@ -1192,9 +1286,12 @@ export async function openAvatarViewer(person, opts) {
     '<div style="height:12px"></div>' +
     ((opts && opts.chat) ? '<button class="btn btn-primary" id="av-chat">Send a message</button>' : '') +
     ((opts && opts.change) ? '<button class="btn btn-soft" id="av-change">Change photo</button>' : '') +
+    (has ? '<button class="btn btn-soft" id="av-dl">⬇ Download photo</button>' : '') +
     '<button class="btn btn-ghost" id="av-x">Close</button></div>'
   );
   sh.querySelector('#av-x').onclick = closeSheet;
+  const dlBtn = sh.querySelector('#av-dl');
+  if (dlBtn) dlBtn.onclick = () => downloadPhoto(p.avatar_data);
   const chatBtn = sh.querySelector('#av-chat');
   if (chatBtn) chatBtn.onclick = () => { closeSheet(); showScreen('chat'); };
   const chBtn = sh.querySelector('#av-change');
