@@ -435,10 +435,17 @@ iframe.map { width: 100%; height: 240px; border: 1px solid var(--border); border
   .hub-row:hover, .list-row:hover, .cream-row:hover { filter: brightness(1.03); }
 }
 .btn:active, .chip:active, .icon-btn:active, #tabbar button:active, .sheet-btn:active, .bubble-menu:active, .emoji-row button:active {
-  transform: scale(.94);
-  filter: brightness(.96);
+  transform: scale(.90);
+  filter: brightness(.88);
 }
+#tabbar button:active { background: var(--surfaceSoft); border-radius: 14px; }
 .hub-row:active, .list-row:active, .cream-row:active, .switch-row:active {
-  transform: scale(.985);
-  filter: brightness(.98);
+  transform: scale(.97);
+  filter: brightness(.94);
 }
+
+/* ---- Profile photo viewer (tap an avatar → photo opens large) ---- */
+.partner-ava, .cream-ava { cursor: pointer; }
+.ava-view .ava-full { width: 240px; height: 240px; border-radius: 50%; object-fit: cover; display: block; margin: 8px auto 0; }
+.ava-view .ava-initials { display: flex; align-items: center; justify-content: center; font-size: 84px; font-weight: 700; background: var(--surfaceSoft); color: var(--accentInk); }
+.ava-view .btn { width: 100%; margin-top: 8px; }

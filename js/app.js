@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.9';
+const BUILD_ID = '2026-11-18.10';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -841,7 +841,7 @@ registerScreen('home', () => {
   // Partner card
   html += '<div class="card">';
   if (S.partner) {
-    html += '<div class="flex"><div class="partner-ava">' + avatarInner(S.partner) + '</div><div class="grow"><div style="font-size:17px;font-weight:600">' + esc(S.partner.display_name) + '</div><div class="muted small">' + esc(S.partner.role) + ' · Linked with you</div></div></div>';
+    html += '<div class="flex"><div class="partner-ava" id="h-pava" title="View photo">' + avatarInner(S.partner) + '</div><div class="grow"><div style="font-size:17px;font-weight:600">' + esc(S.partner.display_name) + '</div><div class="muted small">' + esc(S.partner.role) + ' · Linked with you</div></div></div>';
     html += '<div style="margin-top:14px" class="flex"><span class="hero-days">' + days + '</span><span class="muted">' + (days === 1 ? 'day together' : 'days together') + '</span></div>';
     html += '<p class="small" id="home-streak" style="margin:10px 0 0">' + esc(homeCache.streakText && homeCache.coupleId === S.coupleId ? homeCache.streakText : 'Loading your streak…') + '</p>';
     html += '<p class="small muted" id="home-checkin" style="margin:4px 0 0">' + esc(homeCache.coupleId === S.coupleId && homeCache.checkinDay === todayIso() && homeCache.checkinMood ? 'Today’s check-ins — You: ' + homeCache.checkinMood + ' · ' + S.partner.display_name + ': …' : 'Loading today’s check-ins…') + '</p>';
@@ -863,6 +863,8 @@ registerScreen('home', () => {
   html += '<div class="grow"></div></div>';
   appEl().innerHTML = html;
   document.getElementById('h-theme').onclick = () => { setTheme(nextTheme()); showScreen('home'); };
+  const pava = document.getElementById('h-pava');
+  if (pava) pava.onclick = () => openAvatarViewer(S.partner, { partner: true, chat: true });
   const annX = document.getElementById('h-ann-x');
   if (annX) annX.onclick = () => { ls.set('announceDismissed', ann); showScreen('home'); };
   const linkBtn = document.getElementById('h-link');
@@ -911,7 +913,7 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
   // Header: greeting + date, theme toggle, partner avatar (→ Chat).
   html += '<div class="cream-head"><div class="grow"><h1 class="cream-greet">' + esc(greetWord) + ', ' + esc(firstName) + '.</h1>' +
     '<p class="cream-date">' + esc(dateLine) + '</p></div>' + themeBtn +
-    '<button class="cream-ava" id="h-ava" aria-label="' + (S.partner ? 'Open chat with ' + esc(S.partner.display_name) : 'Open Settings to link with your partner') + '">' + avatarInner(S.partner ? S.partner : S.me) + '</button></div>';
+    '<button class="cream-ava" id="h-ava" aria-label="' + (S.partner ? 'View ' + esc(S.partner.display_name) + '’s photo' : 'Open Settings to link with your partner') + '">' + avatarInner(S.partner ? S.partner : S.me) + '</button></div>';
   html += '<div class="cream-week">' + weekHtml + '</div>';
   // Peach highlight card: an announcement takes this slot when one is
   // live; otherwise it is the couple card (or the link card).
@@ -976,7 +978,7 @@ function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
   document.getElementById('h-theme').onclick = () => { setTheme(nextTheme()); showScreen('home'); };
   const annX = document.getElementById('h-ann-x');
   if (annX) annX.onclick = () => { ls.set('announceDismissed', ann); showScreen('home'); };
-  document.getElementById('h-ava').onclick = () => showScreen(S.partner ? 'chat' : 'settings');
+  document.getElementById('h-ava').onclick = () => { if (S.partner) openAvatarViewer(S.partner, { partner: true, chat: true }); else showScreen('settings'); };
   const linkBtn = document.getElementById('h-link');
   if (linkBtn) linkBtn.onclick = () => showScreen('settings');
   const heroChat = document.getElementById('h-hero-chat');
@@ -1034,6 +1036,35 @@ export function avatarInner(person) {
     return '<img alt="" src="' + person.avatar_data + '">';
   }
   return esc(initials(person ? person.display_name : '?'));
+}
+/** WhatsApp-style profile-photo viewer: tapping an avatar opens the
+ * photo large, with the person's name. For the partner it first
+ * re-fetches their profile, so a photo they added a minute ago shows
+ * without waiting for a reload. */
+export async function openAvatarViewer(person, opts) {
+  let p = person;
+  if (opts && opts.partner && S.partner && person && person.id === S.partner.id) {
+    try {
+      const rows = await api.get('/profiles?id=eq.' + S.partner.id + '&select=id,display_name,role,battery_share,arrival_share,avatar_data');
+      if (rows && rows[0]) { S.partner = rows[0]; p = rows[0]; }
+    } catch { /* fall back to what we already have */ }
+  }
+  const has = p && typeof p.avatar_data === 'string' && p.avatar_data.startsWith('data:image/');
+  const sh = sheet(
+    '<div class="ava-view">' +
+    (has ? '<img class="ava-full" alt="Profile photo" src="' + p.avatar_data + '">' : '<div class="ava-full ava-initials">' + esc(initials(p ? p.display_name : '?')) + '</div>') +
+    '<h3 style="text-align:center;margin:12px 0 2px">' + esc(p ? p.display_name : '') + '</h3>' +
+    (has ? '' : '<p class="muted small" style="text-align:center;margin:0">No profile photo yet.</p>') +
+    '<div style="height:12px"></div>' +
+    ((opts && opts.chat) ? '<button class="btn btn-primary" id="av-chat">Send a message</button>' : '') +
+    ((opts && opts.change) ? '<button class="btn btn-soft" id="av-change">Change photo</button>' : '') +
+    '<button class="btn btn-ghost" id="av-x">Close</button></div>'
+  );
+  sh.querySelector('#av-x').onclick = closeSheet;
+  const chatBtn = sh.querySelector('#av-chat');
+  if (chatBtn) chatBtn.onclick = () => { closeSheet(); showScreen('chat'); };
+  const chBtn = sh.querySelector('#av-change');
+  if (chBtn) chBtn.onclick = () => { closeSheet(); const f = document.getElementById('s-ava-file'); if (f) f.click(); };
 }
 /** Turns a picked image file into a small profile-photo data URL:
  * centre-cropped to a square and shrunk to 256×256 JPEG before it is
@@ -1736,7 +1767,7 @@ registerScreen('settings', () => {
       '<div class="screen">' +
       // Profile photo
       '<h2 class="section">Profile</h2><div class="card">' +
-      '<div class="flex"><div class="partner-ava">' + avatarInner(S.me) + '</div>' +
+      '<div class="flex"><div class="partner-ava" id="s-ava-view" title="View photo">' + avatarInner(S.me) + '</div>' +
       '<div class="grow"><div style="font-weight:600">' + esc(S.me ? S.me.display_name : '') + '</div><div class="muted small">' + esc(S.me ? S.me.role : '') + '</div></div></div>' +
       '<div style="height:12px"></div><div class="btn-row"><button class="btn btn-soft" id="s-ava-change">' + (S.me && S.me.avatar_data ? 'Change photo' : 'Add a photo') + '</button>' +
       (S.me && S.me.avatar_data ? '<button class="btn btn-ghost" id="s-ava-remove">Remove photo</button>' : '') + '</div>' +
@@ -1823,6 +1854,8 @@ registerScreen('settings', () => {
     const avaFile = document.getElementById('s-ava-file');
     const avaChange = document.getElementById('s-ava-change');
     avaChange.onclick = () => avaFile.click();
+    const avaView = document.getElementById('s-ava-view');
+    if (avaView) avaView.onclick = () => openAvatarViewer(S.me, { change: true });
     avaFile.onchange = async () => {
       const f = avaFile.files && avaFile.files[0];
       avaFile.value = '';
