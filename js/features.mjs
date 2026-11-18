@@ -33,8 +33,23 @@ function wireHub() {
   appEl().querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => showScreen(b.dataset.go, b.dataset.param || undefined); });
 }
 async function loadGame(kind) {
-  const rows = await api.get('/games?couple_id=eq.' + S.coupleId + '&kind=eq.' + kind + '&order=created_at.desc&limit=1&select=id,state,turn_user,status,winner');
-  return rows[0] || null;
+  // One canonical row per couple+kind: the SMALLEST id, chosen the
+  // same way on every device. (Before this, the newest row won — when
+  // both partners opened a game for the first time at the same moment,
+  // each created a row and the two phones followed different rows:
+  // both sides waited for the other forever.) Extra active rows are
+  // retired so they stop competing.
+  const rows = await api.get('/games?couple_id=eq.' + S.coupleId + '&kind=eq.' + kind + '&status=eq.active&order=id.asc&select=id,state,turn_user,status,winner');
+  if (rows.length > 1) {
+    for (const extra of rows.slice(1)) {
+      api.patch('/games?id=eq.' + extra.id, { status: 'superseded' }).catch(() => {});
+    }
+  }
+  if (rows[0]) return rows[0];
+  // No active game: fall back to the latest finished one so a won
+  // game still displays its result until someone starts a new one.
+  const done = await api.get('/games?couple_id=eq.' + S.coupleId + '&kind=eq.' + kind + '&order=created_at.desc&limit=1&select=id,state,turn_user,status,winner');
+  return done[0] || null;
 }
 async function createGame(kind, state, turnUser) {
   const rows = await api.post('/games', { couple_id: S.coupleId, kind, state, turn_user: turnUser, status: 'active' }, 'return=representation');
