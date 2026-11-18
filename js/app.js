@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.3';
+const BUILD_ID = '2026-11-18.4';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -146,22 +146,37 @@ export const BUILTIN = {
   giftKinds: ['Rose', 'Chocolate', 'Hug', 'Kiss', 'Love Letter', 'Star'],
   moods: ['Amazing', 'Good', 'Okay', 'Low', 'Rough'],
 };
-export function themeMode() { return ls.get('theme', 'warm'); }
+/** The three built-in themes, in Home-toggle cycle order. */
+export const THEMES = ['warm', 'dark', 'cream'];
+const THEME_COLORS = { warm: '#FBF6EF', dark: '#150D1D', cream: '#FAF2E9' };
+const THEME_PALETTE_KEYS = { warm: 'theme_warm', dark: 'theme_dark', cream: 'theme_cream' };
+export function themeMode() {
+  const m = ls.get('theme', 'warm');
+  return THEMES.includes(m) ? m : 'warm';
+}
 export function applyTheme() {
   const mode = themeMode();
   document.documentElement.dataset.theme = mode;
-  document.querySelector('meta[name="theme-color"]').content = mode === 'dark' ? '#150D1D' : '#FBF6EF';
+  document.querySelector('meta[name="theme-color"]').content = THEME_COLORS[mode] || THEME_COLORS.warm;
   applyPaletteOverlay();
 }
 export function setTheme(mode) { ls.set('theme', mode); applyTheme(); }
+/** Next theme in the cycle (Home toggle). */
+export function nextTheme() { return THEMES[(THEMES.indexOf(themeMode()) + 1) % THEMES.length]; }
+let overlayTokens = new Set();
 function applyPaletteOverlay() {
+  const root = document.documentElement;
+  // Remove the previous theme's overlay first: inline custom properties
+  // outrank the stylesheet, so without this a server palette for one
+  // theme would leak into (and half-apply to) the next theme.
+  for (const t of overlayTokens) root.style.removeProperty('--' + t);
+  overlayTokens = new Set();
   const rc = S.rc || ls.get('rcCache', null);
   if (!rc) return;
-  const pal = rc[themeMode() === 'dark' ? 'theme_dark' : 'theme_warm'];
+  const pal = rc[THEME_PALETTE_KEYS[themeMode()]];
   if (!pal || typeof pal !== 'object') return;
-  const root = document.documentElement;
   for (const [token, value] of Object.entries(pal)) {
-    if (typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)) root.style.setProperty('--' + token, value);
+    if (typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)) { root.style.setProperty('--' + token, value); overlayTokens.add(token); }
   }
 }
 export function rcList(key, builtin) {
@@ -758,7 +773,7 @@ registerScreen('home', () => {
   const days = daysTogether();
   const ann = rcAnnouncement();
   const annDismissed = ls.get('announceDismissed', '');
-  const themeBtn = '<button class="icon-btn" id="h-theme" aria-label="Switch theme">' + (themeMode() === 'dark' ? '☀️' : '🌙') + '</button>';
+  const themeBtn = '<button class="icon-btn" id="h-theme" aria-label="Switch theme">' + ({ dark: '🌙', cream: '🌅', warm: '☀️' }[nextTheme()]) + '</button>';
   let html = topbar('US & Always', { right: themeBtn });
   html += '<div class="screen fill" id="home-live">';
   if (ann && ann !== annDismissed) html += '<div class="announce"><span>📣 ' + esc(ann) + '</span><button id="h-ann-x">Dismiss</button></div>';
@@ -794,7 +809,7 @@ registerScreen('home', () => {
     '<p class="tiny muted" style="margin:10px 0 0">You can schedule a message from the chat screen; it is sent while this page is open.</p></div>';
   html += '<div class="grow"></div></div>';
   appEl().innerHTML = html;
-  document.getElementById('h-theme').onclick = () => { setTheme(themeMode() === 'dark' ? 'warm' : 'dark'); showScreen('home'); };
+  document.getElementById('h-theme').onclick = () => { setTheme(nextTheme()); showScreen('home'); };
   const annX = document.getElementById('h-ann-x');
   if (annX) annX.onclick = () => { ls.set('announceDismissed', ann); showScreen('home'); };
   const linkBtn = document.getElementById('h-link');
@@ -1475,8 +1490,9 @@ registerScreen('settings', () => {
       // Appearance
       '<h2 class="section">Appearance</h2><div class="card">' +
       '<div class="btn-row"><button class="btn ' + (themeMode() === 'warm' ? 'btn-primary' : 'btn-soft') + '" id="s-warm">☀️ Warm Editorial</button>' +
-      '<button class="btn ' + (themeMode() === 'dark' ? 'btn-primary' : 'btn-soft') + '" id="s-dark">🌙 Dark Luxe</button></div>' +
-      '<p class="tiny muted" style="margin:8px 0 0">The same two designs as the app — switch any time; your choice is remembered on this device.</p></div>' +
+      '<button class="btn ' + (themeMode() === 'dark' ? 'btn-primary' : 'btn-soft') + '" id="s-dark">🌙 Dark Luxe</button>' +
+      '<button class="btn ' + (themeMode() === 'cream' ? 'btn-primary' : 'btn-soft') + '" id="s-cream">🌅 Morning Cream</button></div>' +
+      '<p class="tiny muted" style="margin:8px 0 0">Three designs — switch any time; your choice is remembered on this device.</p></div>' +
       // Linking
       '<h2 class="section">Linking</h2><div class="card" id="s-link"></div>' +
       // Relationship
@@ -1546,6 +1562,7 @@ registerScreen('settings', () => {
   const wireSettings = (code, setCode) => {
     document.getElementById('s-warm').onclick = () => { setTheme('warm'); render(); };
     document.getElementById('s-dark').onclick = () => { setTheme('dark'); render(); };
+    document.getElementById('s-cream').onclick = () => { setTheme('cream'); render(); };
     document.getElementById('s-start-save').onclick = () => {
       const v = document.getElementById('s-start').value;
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { ls.set(prefKey('startDate'), v); toast('Start date saved.'); }

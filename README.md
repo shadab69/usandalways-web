@@ -2,8 +2,9 @@
 
 The web version of the US & Always couple app: the same features, the same
 Supabase backend, the same end-to-end encryption and the same two designs
-(Warm Editorial / Dark Luxe) as the Android app (v1.1.2) — running in a
-browser instead of as an installed APK, so both partners can test it live.
+(Warm Editorial / Dark Luxe) as the Android app (v1.1.2), plus a third
+web-only design (Morning Cream) — running in a browser instead of as an
+installed APK, so both partners can test it live.
 
 ## How to open it
 
