@@ -632,3 +632,9 @@ html[data-theme="cream"] .hb-act, html[data-theme="bento"] .hb-act {
   background: none; border: 0; font-size: 16px; line-height: 1; padding: 12px 9px;
   cursor: pointer; color: var(--muted); flex: none;
 }
+
+/* Bucket rows on Home show the FULL dream text — the 2-line clamp
+   that suits the short routine rows cut long dreams with "…". */
+html[data-theme="cream"] .hb-row .cream-row-name, html[data-theme="bento"] .hb-row .cream-row-name {
+  display: block; -webkit-line-clamp: unset; overflow: visible;
+}
