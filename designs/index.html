@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>US &amp; Always — 6 Design Directions</title>
+<title>US &amp; Always — 12 Design Directions</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #101014; color: #F2F2F5; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 28px 16px 60px; }
@@ -131,12 +131,106 @@
   .s6 .seeall { color: #C05F2E; }
   .s6 .tabbar { background: #F7F8F1; border-radius: 999px; margin: 0 2px 12px; color: #93A189; box-shadow: 0 10px 24px rgba(46,83,57,.14); }
   .s6 .tab.on { color: #2E5339; }
+
+  /* ---------- 7 · Bento Grid ---------- */
+  .s7 { background: #ECECF0; color: #17171C; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s7 .ava { background: #17171C; color: #fff; }
+  .s7 .dateline { color: #8B8B96; }
+  .s7 .hero { background: linear-gradient(120deg, #FF9E7A, #FF6B9D); color: #fff; border-radius: 26px; box-shadow: 0 12px 26px rgba(255,107,157,.30); }
+  .s7 .hero .pdesc { color: rgba(255,255,255,.85); }
+  .s7 .hero .pbtn { background: #fff; color: #E84E7E; border-radius: 999px; }
+  .s7 .card, .s7 .row { background: #fff; border-radius: 22px; box-shadow: 0 6px 18px rgba(23,23,28,.06); }
+  .s7 .tile { border-radius: 13px; color: #fff; }
+  .s7 .b1 { background: #6C7CFF; } .s7 .b2 { background: #FFB03A; } .s7 .b3 { background: #FF6B9D; } .s7 .b4 { background: #37C978; }
+  .s7 .rs { color: #8B8B96; }
+  .s7 .seeall { color: #6C7CFF; }
+  .s7 .tabbar { background: #17171C; border-radius: 999px; margin: 0 2px 12px; color: #9A9AA5; }
+  .s7 .tab.on { color: #fff; }
+
+  /* ---------- 8 · Material You ---------- */
+  .s8 { background: #FFF8F6; color: #2B1B20; font-family: Roboto, -apple-system, "Segoe UI", sans-serif; }
+  .s8 .ava { background: #A33B5E; color: #FFE9EF; }
+  .s8 .dateline { color: #9A7E86; }
+  .s8 .greet { font-weight: 700; }
+  .s8 .hero { background: #FFD9E2; border-radius: 28px; color: #57122B; }
+  .s8 .hero .pdesc { color: rgba(87,18,43,.72); }
+  .s8 .hero .pbtn { background: #A33B5E; color: #fff; border-radius: 999px; padding: 9px 18px; }
+  .s8 .card, .s8 .row { background: #FBEDEF; border-radius: 20px; }
+  .s8 .tile { background: #FFD9E2; border-radius: 50%; }
+  .s8 .rs { color: #9A7E86; }
+  .s8 .seeall { color: #A33B5E; }
+  .s8 .tabbar { background: #F6E3E8; color: #8A6A73; padding-top: 7px; }
+  .s8 .tab.on { color: #57122B; }
+  .s8 .tab.on .ti { background: #FFC4D4; border-radius: 999px; padding: 3px 14px; }
+
+  /* ---------- 9 · Aurora Gradient ---------- */
+  .s9 { background: radial-gradient(120% 60% at 85% 0%, rgba(255,170,80,.85), rgba(255,170,80,0) 60%), radial-gradient(120% 70% at 10% 20%, rgba(150,90,255,.9), rgba(150,90,255,0) 65%), linear-gradient(170deg, #3B1D6E, #8A2B7A 55%, #D94F70); color: #fff; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s9 .ava { background: rgba(255,255,255,.92); color: #8A2B7A; }
+  .s9 .dateline { color: rgba(255,255,255,.75); }
+  .s9 .hero { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.35); border-radius: 24px; backdrop-filter: blur(6px); }
+  .s9 .hero .pdesc { color: rgba(255,255,255,.82); }
+  .s9 .hero .pbtn { background: #fff; color: #8A2B7A; border-radius: 999px; }
+  .s9 .card, .s9 .row { background: rgba(255,255,255,.94); color: #2A1430; border-radius: 20px; box-shadow: 0 10px 24px rgba(40,5,60,.25); }
+  .s9 .tile { background: #F3E4FF; border-radius: 12px; }
+  .s9 .rs { color: #8B7396; }
+  .s9 .seeall { color: #FFE1A8; }
+  .s9 .tabbar { background: rgba(255,255,255,.94); border-radius: 999px; margin: 0 2px 12px; color: #9A86A8; }
+  .s9 .tab.on { color: #8A2B7A; }
+
+  /* ---------- 10 · Mono Black ---------- */
+  .s10 { background: #FAFAFA; color: #000; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s10 .topbar { letter-spacing: .12em; font-size: 11.5px; text-transform: uppercase; }
+  .s10 .ava { background: #000; color: #fff; }
+  .s10 .dateline { color: #8A8A8A; }
+  .s10 .greet { font-weight: 900; letter-spacing: -.03em; }
+  .s10 .hero { background: #000; color: #fff; border-radius: 16px; }
+  .s10 .hero .pdesc { color: #BDBDBD; }
+  .s10 .hero .pbtn { background: #D71921; color: #fff; border-radius: 999px; }
+  .s10 .card, .s10 .row { background: #fff; border: 1.5px solid #000; border-radius: 14px; }
+  .s10 .tile { background: #000; color: #fff; border-radius: 9px; }
+  .s10 .rs { color: #8A8A8A; }
+  .s10 .seeall { color: #D71921; }
+  .s10 .tabbar { background: #fff; border-top: 1.5px solid #000; color: #9A9A9A; }
+  .s10 .tab.on { color: #000; }
+  .s10 .tab.on .ti { color: #D71921; }
+
+  /* ---------- 11 · Photo-led Romantic ---------- */
+  .s11 { background: #FFF9F7; color: #33222A; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s11 .ava { background: #E5567F; color: #fff; }
+  .s11 .dateline { color: #B08E99; }
+  .s11 .hero { background: linear-gradient(150deg, #F7A8BC, #E5567F 70%); border-radius: 26px; color: #fff; min-height: 118px; box-shadow: 0 14px 30px rgba(229,86,127,.32); }
+  .s11 .hero .pname { font-size: 20px; }
+  .s11 .hero .pdesc { color: rgba(255,255,255,.88); }
+  .s11 .hero .pbtn { background: rgba(255,255,255,.95); color: #C93A64; border-radius: 999px; }
+  .s11 .card, .s11 .row { background: #fff; border-radius: 20px; box-shadow: 0 8px 22px rgba(200,110,140,.12); }
+  .s11 .tile { background: #FDE7ED; border-radius: 12px; }
+  .s11 .rs { color: #B08E99; }
+  .s11 .seeall { color: #E5567F; }
+  .s11 .tabbar { background: #fff; border-radius: 999px; margin: 0 2px 12px; color: #C4A3AD; box-shadow: 0 10px 24px rgba(200,110,140,.16); }
+  .s11 .tab.on { color: #E5567F; }
+
+  /* ---------- 12 · Royal Luxe ---------- */
+  .s12 { background: #0F1B2D; color: #EDF1F7; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s12 .topbar { letter-spacing: .1em; font-size: 12px; text-transform: uppercase; color: #C9A24B; }
+  .s12 .ava { background: #C9A24B; color: #0F1B2D; }
+  .s12 .dateline { color: #8494AB; }
+  .s12 .greet { font-family: Georgia, serif; font-weight: 400; font-size: 23px; }
+  .s12 .hero { background: linear-gradient(130deg, #1E3A5F, #274b78); border: 1px solid rgba(201,162,75,.45); border-radius: 20px; }
+  .s12 .hero .pname { font-family: Georgia, serif; font-weight: 400; font-size: 19px; color: #F3D98B; }
+  .s12 .hero .pdesc { color: #B9C6D8; }
+  .s12 .hero .pbtn { background: #C9A24B; color: #0F1B2D; border-radius: 999px; }
+  .s12 .card, .s12 .row { background: #16283F; border: 1px solid #263B59; border-radius: 16px; }
+  .s12 .tile { background: #1E3A5F; border-radius: 10px; }
+  .s12 .rs { color: #8494AB; }
+  .s12 .seeall { color: #C9A24B; }
+  .s12 .tabbar { background: #0B1523; border-top: 1px solid #263B59; color: #71839C; }
+  .s12 .tab.on { color: #C9A24B; }
 </style>
 </head>
 <body>
   <div class="page-head">
-    <h1>US &amp; Always — 6 design directions</h1>
-    <p>Ek hi Home screen, 6 alag design bhashaon me. Sab me wahi asal cheezein hain — Shaique wala card, upar Bucket List, Today ki lines aur neeche ke tabs.<br>Jiska number pasand aaye, bas wahi number bata dijiye — usi style me poora app banega.</p>
+    <h1>US &amp; Always — 12 design directions</h1>
+    <p>Ek hi Home screen, 12 alag design bhashaon me. Sab me wahi asal cheezein hain — Shaique wala card, upar Bucket List, Today ki lines aur neeche ke tabs.<br>Jiska number pasand aaye, bas wahi number bata dijiye — usi style me poora app banega.</p>
   </div>
   <div class="grid" id="grid"></div>
 
@@ -164,16 +258,22 @@
       '</div></div>';
   }
   const OPTIONS = [
-    ['s1', [], '1 · Fintech Clean', 'Safed, saaf, bilkul aaj ke banking apps jaisa (Revolut wali feel). Koi shor nahi — bas saaf cards aur tez type. Sabse zyada “proper app” wali pehchan.'],
-    ['s2', ['','','',''], '2 · iOS Glass', 'iPhone ke widgets jaisa — halki dhundli (frosted) safed paraten, peeche naram rang. Premium aur thanda-thanda feel.'],
-    ['s3', ['t1','t2','t3','t4'], '3 · Playful Pop', 'Duolingo jaisa mazedaar — mote kinare, sakht saaye, chamkeele rang. Har tap par khilona-jaisa josh; app ekdum zinda lagta hai.'],
-    ['s4', ['','','',''], '4 · Dark Luxe Night', 'Gehra kala background, gulaabi-sunehra chamak. Raat ko phone dekhne par sabse khoobsurat; couple-app wali private, mehfil-jaisi vibe.'],
-    ['s5', ['','','',''], '5 · Editorial Serif', 'Akhbaar/magazine jaisa — badi serif type, patli lakeerein, koi dabbe nahi. Sabse alag aur kalaatmak; lekin sabse kam “app” jaisa.'],
-    ['s6', ['','','',''], '6 · Calm Earth', 'Halka hara-maati rang, gehara sabz aur mitti-narangi. Aankhon ko sabse aaram; prakriti-jaisa shaant aur garam feel.']
+    ['s1', [], 1, 'Fintech Clean', 'Safed, saaf, bilkul aaj ke banking apps jaisa (Revolut wali feel). Koi shor nahi — bas saaf cards aur tez type. Sabse zyada “proper app” wali pehchan.'],
+    ['s2', ['','','',''], 2, 'iOS Glass', 'iPhone ke widgets jaisa — halki dhundli (frosted) safed paraten, peeche naram rang. Premium aur thanda-thanda feel.'],
+    ['s3', ['t1','t2','t3','t4'], 3, 'Playful Pop', 'Duolingo jaisa mazedaar — mote kinare, sakht saaye, chamkeele rang. Har tap par khilona-jaisa josh; app ekdum zinda lagta hai.'],
+    ['s4', ['','','',''], 4, 'Dark Luxe Night', 'Gehra kala background, gulaabi-sunehra chamak. Raat ko phone dekhne par sabse khoobsurat; couple-app wali private, mehfil-jaisi vibe.'],
+    ['s5', ['','','',''], 5, 'Editorial Serif', 'Akhbaar/magazine jaisa — badi serif type, patli lakeerein, koi dabbe nahi. Sabse alag aur kalaatmak; lekin sabse kam “app” jaisa.'],
+    ['s6', ['','','',''], 6, 'Calm Earth', 'Halka hara-maati rang, gehara sabz aur mitti-narangi. Aankhon ko sabse aaram; prakriti-jaisa shaant aur garam feel.'],
+    ['s7', ['b1','b2','b3','b4'], 7, 'Bento Grid', 'Aaj kal ke sabse trendy apps jaisa — alag-alag size ke rang-birange dabbe (tiles) ek saaf jaali me. Har cheez ek widget jaisi, bahut hi “app” feel.'],
+    ['s8', ['','','',''], 8, 'Material You', 'Google ke Android apps (Photos/Keep) jaisa asli Android look — gole button, gole nishan, neeche wala gola tab-bar. Phone me sabse ghula-mila, pehchana hua feel.'],
+    ['s9', ['','','',''], 9, 'Aurora Gradient', 'Peeche behta hua rang-biranga gradient (jamuni-gulaabi-narangi), upar safed cards. Instagram/BeReal zamane ke social apps jaisi energy aur chamak.'],
+    ['s10', ['','','',''], 10, 'Mono Black', 'Sirf kala-safed aur ek laal nishan — Nothing phone ke apps jaisa ultra-modern, fashion-brand wala andaaz. Koi rang-bhang nahi, ekdum saaf aur tez.'],
+    ['s11', ['','','',''], 11, 'Photo-led Romantic', 'Duniya ke mashhoor couple apps (Between) jaisa — upar bada gulaabi partner card, baaki safed naram cards. Sabse zyada “couple app” wali pehchan.'],
+    ['s12', ['','','',''], 12, 'Royal Luxe', 'Gehra neela aur sunehra — paanch-sitara hotel jaisa shahi feel. Serif bade akshar, shaant aur mehenga andaaz.']
   ];
   document.getElementById('grid').innerHTML = OPTIONS.map(o =>
-    '<div class="option"><div class="opt-head"><span class="opt-num">' + o[2][0] + '</span><span class="opt-name">' + o[2].slice(4) + '</span></div>' +
-    '<p class="opt-feel">' + o[3] + '</p>' + phone(o[0], o[1]) + '</div>'
+    '<div class="option"><div class="opt-head"><span class="opt-num">' + o[2] + '</span><span class="opt-name">' + o[3] + '</span></div>' +
+    '<p class="opt-feel">' + o[4] + '</p>' + phone(o[0], o[1]) + '</div>'
   ).join('');
 </script>
 </body>
