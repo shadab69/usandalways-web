@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.8';
+const BUILD_ID = '2026-11-18.9';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -328,6 +328,46 @@ export function notify(title, body) {
   } catch { /* notifications are best-effort while the page is open */ }
 }
 
+// Message "ting": a short two-note bell synthesized with WebAudio — no
+// audio file to ship or license. Browsers only allow sound after the
+// user has interacted with the page, so the context is created/resumed
+// lazily (and primed on the first tap anywhere); any block stays
+// silent. Can be turned off in Settings → Notifications & feel.
+let tingCtx = null;
+export function playTing() {
+  try {
+    if (prefs().msgSound === false) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!tingCtx) tingCtx = new AC();
+    if (tingCtx.state === 'suspended') tingCtx.resume().catch(() => {});
+    const t0 = tingCtx.currentTime;
+    const master = tingCtx.createGain();
+    master.gain.setValueAtTime(0.9, t0);
+    master.connect(tingCtx.destination);
+    const note = (freq, at, dur, vol) => {
+      const o = tingCtx.createOscillator(); const g = tingCtx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(vol, at + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      o.connect(g); g.connect(master); o.start(at); o.stop(at + dur + 0.05);
+    };
+    note(1318.5, t0, 0.35, 0.20);        // E6
+    note(1760.0, t0 + 0.09, 0.55, 0.16); // A6 — the bright "ting"
+  } catch { /* sound is best-effort */ }
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('pointerdown', () => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!tingCtx) tingCtx = new AC();
+      if (tingCtx.state === 'suspended') tingCtx.resume().catch(() => {});
+    } catch { /* priming is best-effort */ }
+  }, { passive: true });
+}
+
 // ---------------------------------------------------------------- onboarding + auth
 registerScreen('onboarding', () => {
   appEl().innerHTML =
@@ -630,7 +670,7 @@ function startGlobalLoops() {
           S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, m.id);
           // While realtime is connected it delivers (and notifies)
           // instantly — the poller must not notify a second time.
-          if (S.msgsPrimed && m.sender_id !== uid() && !rtConnected) notify('New message', (S.partner ? S.partner.display_name : 'Your partner') + ' sent you a message.');
+          if (S.msgsPrimed && m.sender_id !== uid() && !rtConnected) { notify('New message', (S.partner ? S.partner.display_name : 'Your partner') + ' sent you a message.'); playTing(); }
         }
       } else {
         const ms = await api.get('/messages?couple_id=eq.' + S.coupleId + '&order=id.desc&limit=1&select=id');
@@ -734,6 +774,9 @@ function realtimeCatchUp() {
 }
 function onRealtimeMessage(evt) {
   if (evt.record && evt.record.id) S.lastMsgIdSeen = Math.max(S.lastMsgIdSeen, evt.record.id);
+  // A partner message arriving live gets the "ting" (both when the
+  // user is elsewhere in the app and while watching the chat).
+  if (evt.type === 'INSERT' && evt.record && evt.record.sender_id && evt.record.sender_id !== uid()) playTing();
   const action = realtimeMessageAction({
     screen: S.screen, eventType: evt.type,
     senderId: evt.record ? evt.record.sender_id : null, myId: uid(),
@@ -1436,6 +1479,9 @@ registerScreen('chat', (param) => {
     // message poll, so a key rotation on their side heals this session
     // within one poll cycle instead of breaking it until re-login.
     await refreshPartnerKey();
+    // For the polling fallback's "ting": remember the newest partner
+    // message already on screen before this load merges new rows.
+    const prevPartnerTop = state.messages.reduce((a, m) => (m.mine ? a : Math.max(a, m.serverId)), 0);
     try {
       const rows = await api.get('/messages?couple_id=eq.' + S.coupleId + '&thread=eq.' + state.thread + '&order=id.desc&limit=100&select=' + MSG_SELECT);
       if (rows.length) {
@@ -1445,6 +1491,12 @@ registerScreen('chat', (param) => {
       }
       mergeView(await buildView(rows));
       renderMessages();
+      // While realtime is connected it plays the ting itself; on the
+      // polling fallback, a genuinely new partner message tings here.
+      if (!rtConnected && prevPartnerTop > 0) {
+        const newPartnerTop = state.messages.reduce((a, m) => (m.mine ? a : Math.max(a, m.serverId)), 0);
+        if (newPartnerTop > prevPartnerTop) playTing();
+      }
       updateEarlierBtn();
       // This load marked the visible partner messages read — refresh
       // the unread badge from the server count so it clears.
@@ -1724,6 +1776,7 @@ registerScreen('settings', () => {
       '<p class="tiny muted">While this page is open, it checks every few seconds for new messages and taps, and can show browser notifications. This is not push: when the page is closed, nothing arrives until you open it again.' + (rcConnectionService() ? '' : ' (Currently turned off by the couple’s server settings.)') + '</p>' +
       '<div class="btn-row"><button class="btn btn-soft" id="s-notif">Allow browser notifications</button></div>' +
       '<p class="tiny muted" id="s-notif-status" style="margin:6px 0 0"></p>' +
+      '<div class="switch-row"><span class="lbl">Message sound — a soft “ting” when a message arrives</span><span class="switch"><input type="checkbox" id="s-sound" ' + (p.msgSound === false ? '' : 'checked') + '><span class="track"></span></span></div>' +
       '<label class="field">Vibration pattern for taps</label><div class="chips" id="s-vib">' +
       ['Gentle', 'Heartbeat', 'Excited'].map((v) => '<button class="chip ' + (vibPatternName() === v ? 'selected' : '') + '" data-vib="' + v + '">' + v + '</button>').join('') + '</div></div>' +
       // Security
@@ -1807,6 +1860,8 @@ registerScreen('settings', () => {
     };
     document.getElementById('s-receipts').onchange = (ev) => setPref('readReceiptsOff', !ev.target.checked);
     document.getElementById('s-stay').onchange = (ev) => setPref('stayConnected', ev.target.checked);
+    const snd = document.getElementById('s-sound');
+    if (snd) snd.onchange = (ev) => { setPref('msgSound', ev.target.checked); if (ev.target.checked) playTing(); };
     document.getElementById('s-battery').onchange = async (ev) => {
       try {
         await api.patch('/profiles?id=eq.' + uid(), { battery_share: ev.target.checked });
