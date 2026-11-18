@@ -12,7 +12,7 @@ import {
   BUILTIN, rcList, uid, todayIso, initials, daysTogether, prevIsoDay,
   cacheMyCheckin, openChatWireRetry,
 } from './app.js';
-import { latestRowPerUser, nextSpinCount, playbackDecision } from './logic.mjs';
+import { latestRowPerUser, nextSpinCount, playbackDecision, classifyMediaLink } from './logic.mjs';
 
 const KEYS_NOT_READY = 'Your partner’s message key isn’t available yet — ask your partner to open the app once, then try again.';
 
@@ -516,40 +516,150 @@ function playbackScreen(kind) {
   const isMusic = kind === 'music';
   let appliedStamp = '';
   let media = null;
+  let curUrl = '';       // URL currently loaded in either player
+  let ytId = '';         // YouTube video id in the embed ('' = none)
+  let ytPlaying = false; // last applied YouTube play state
+  let ytPosSec = 0;      // YouTube position (seconds) as of ytPosAt
+  let ytPosAt = 0;       // ms epoch when ytPosSec was current
   appEl().innerHTML = topbar(isMusic ? 'Listen Together' : 'Watch Together', { back: true }) +
-    '<div class="screen"><p class="lede small">Paste a direct link to an ' + (isMusic ? 'audio' : 'video') + ' file. Both of your devices play the link itself and stay in step.</p>' +
-    '<div class="card"><label class="field" for="pb-url">Direct ' + (isMusic ? 'audio' : 'video') + ' link</label><input type="url" id="pb-url" placeholder="https://…/song.mp3">' +
+    '<div class="screen"><p class="lede small">Paste a YouTube link, or a direct link to ' + (isMusic ? 'an audio' : 'a video') + ' file. Both of your devices play it and stay in step.</p>' +
+    '<div class="card"><label class="field" for="pb-url">' + (isMusic ? 'Audio' : 'Video') + ' link</label><input type="url" id="pb-url" placeholder="https://…/' + (isMusic ? 'song.mp3' : 'movie.mp4') + '">' +
     '<div style="height:10px"></div><button class="btn btn-primary" id="pb-set">Set for both of us</button>' +
-    '<p class="tiny muted" style="margin:8px 0 0">Direct links only: Netflix, YouTube and other apps cannot be played together here — the same honest limit as the Android app. Music and video share one “now playing” slot, so starting one replaces the other.</p></div>' +
+    '<p class="tiny muted" style="margin:8px 0 0">YouTube links and direct file links (.mp3 / .mp4) play here. Netflix, Spotify and other apps block playing inside other apps, so their links can’t be used — the same honest limit as the Android app. Music and video share one “now playing” slot, so starting one replaces the other.</p>' +
+    '<p class="error-text" id="pb-link-note" style="margin:8px 0 0" hidden></p></div>' +
     '<div class="card" id="pb-other" hidden></div>' +
-    '<div class="card" id="pb-player-card" hidden>' + (isMusic ? '<audio id="pb-media" controls></audio>' : '<video id="pb-media" controls playsinline></video>') +
+    '<div class="card" id="pb-player-card" hidden>' +
+    '<div id="pb-yt-wrap" hidden><div style="position:relative;padding-top:56.25%;background:#000;border-radius:12px;overflow:hidden">' +
+    '<iframe id="pb-yt" title="YouTube player" style="position:absolute;left:0;top:0;width:100%;height:100%;border:0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>' +
+    (isMusic ? '<p class="tiny muted" style="margin:8px 0 0">YouTube songs play with their video here.</p>' : '') +
+    '<p class="tiny muted" style="margin:8px 0 0">YouTube: play and pause stay in step for both of you; the exact position catches up whenever either of you presses Play or Pause.</p></div>' +
+    (isMusic ? '<audio id="pb-media" controls></audio>' : '<video id="pb-media" controls playsinline></video>') +
     '<div class="btn-row" style="margin-top:10px"><button class="btn btn-soft" id="pb-play">▶ Play for both</button><button class="btn btn-soft" id="pb-pause">⏸ Pause for both</button></div>' +
     '<p class="tiny muted" id="pb-status" style="margin:8px 0 0"></p></div><div class="grow"></div></div>';
   wireBack({ name: 'together' });
   media = document.getElementById('pb-media');
   const status = (t) => { const el = document.getElementById('pb-status'); if (el) el.textContent = t; };
-  const writeState = async (url, positionMs, playing) => {
-    await api.post('/playback_state', {
-      couple_id: S.coupleId, kind, url, position_ms: Math.round(positionMs), playing,
-      updated_by: uid(), updated_at: new Date().toISOString(),
-    }, 'resolution=merge-duplicates');
-    appliedStamp = '';
+  const linkNote = (t) => { const el = document.getElementById('pb-link-note'); if (el) { el.textContent = t || ''; el.hidden = !t; } };
+  // One playback_state row, exactly as the server will return it — the
+  // client supplies updated_at, so a locally built row stamps the same
+  // as the fetched one and the poll will not re-apply our own writes.
+  const buildBody = (url, positionMs, playing) => ({
+    couple_id: S.coupleId, kind, url, position_ms: Math.round(positionMs), playing,
+    updated_by: uid(), updated_at: new Date().toISOString(),
+  });
+  const persist = (body) => api.post('/playback_state', body, 'resolution=merge-duplicates');
+
+  // ---- YouTube embed control (the iframe listens for postMessage
+  // commands when enablejsapi=1). There is no position readback without
+  // the full API, so the position is tracked by estimate: the last
+  // applied position, advanced by the clock while playing.
+  const ytCommand = (func, args) => {
+    const f = document.getElementById('pb-yt');
+    if (!f || !f.contentWindow) return;
+    try { f.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: args || [] }), 'https://www.youtube-nocookie.com'); } catch { /* frame not ready */ }
   };
+  const sendYtState = () => {
+    ytCommand('seekTo', [Math.max(0, Math.floor(ytPosSec)), true]);
+    ytCommand(ytPlaying ? 'playVideo' : 'pauseVideo');
+  };
+  const showYt = (id, playing, targetSec) => {
+    const wrap = document.getElementById('pb-yt-wrap');
+    if (wrap) wrap.hidden = false;
+    ytPlaying = playing; ytPosSec = targetSec; ytPosAt = Date.now();
+    const f = document.getElementById('pb-yt');
+    if (!f) return;
+    if (ytId !== id) {
+      ytId = id;
+      // Commands posted before the player is ready can be dropped, so
+      // re-send the latest state once the new embed has loaded.
+      f.onload = () => sendYtState();
+      f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?enablejsapi=1&start=' + Math.max(0, Math.floor(targetSec)) + '&rel=0&playsinline=1' + (playing ? '&autoplay=1' : '');
+    } else {
+      sendYtState();
+    }
+  };
+  const hideYt = () => {
+    const wrap = document.getElementById('pb-yt-wrap');
+    if (wrap) wrap.hidden = true;
+    const f = document.getElementById('pb-yt');
+    if (f && ytId) { f.onload = null; f.src = 'about:blank'; }
+    ytId = ''; ytPlaying = false;
+  };
+  const stopPlayers = () => {
+    if (media) { try { media.pause(); } catch { /* not ready */ } }
+    hideYt();
+  };
+  const currentPositionMs = () => {
+    if (ytId) return Math.max(0, (ytPosSec + (ytPlaying ? (Date.now() - ytPosAt) / 1000 : 0)) * 1000);
+    return media ? media.currentTime * 1000 : 0;
+  };
+
+  // Apply one playback_state row — fetched, or built locally so a
+  // button press shows on THIS screen at once instead of after the
+  // next poll round-trip — to whichever player the URL needs.
+  const applyRow = (row, force) => {
+    const card = document.getElementById('pb-player-card');
+    const other = document.getElementById('pb-other');
+    if (other) other.hidden = true;
+    if (card) card.hidden = false;
+    const stamp = row.updated_at + '|' + row.url + '|' + row.playing + '|' + row.position_ms;
+    if (!force && stamp === appliedStamp) return;
+    appliedStamp = stamp;
+    curUrl = row.url;
+    const inp = document.getElementById('pb-url');
+    if (inp && row.updated_by !== uid()) inp.value = row.url;
+    const elapsed = row.playing ? (Date.now() - new Date(row.updated_at).getTime()) / 1000 : 0;
+    const target = row.position_ms / 1000 + Math.max(0, elapsed);
+    const cls = classifyMediaLink(row.url);
+    if (cls.type === 'youtube') {
+      // The direct element must never be handed a web-page URL.
+      if (media.getAttribute('src')) { media.removeAttribute('src'); media.load(); }
+      try { media.pause(); } catch { /* not ready */ }
+      media.hidden = true;
+      showYt(cls.id, !!row.playing, target);
+      status(row.updated_by === uid() ? 'You set what is playing.' : S.partner.display_name + ' set what is playing.');
+      return;
+    }
+    hideYt();
+    media.hidden = false;
+    if (media.getAttribute('src') !== row.url) media.src = row.url;
+    const apply = () => {
+      if (Math.abs(media.currentTime - target) > 1.5 && media.duration) media.currentTime = Math.min(target, media.duration - 0.2);
+      if (row.playing) media.play().catch(() => { status('Tap the player to start — your partner pressed play.'); });
+      else media.pause();
+      status(row.updated_by === uid() ? 'You set what is playing.' : S.partner.display_name + ' set what is playing.');
+    };
+    if (media.readyState >= 1) apply(); else media.addEventListener('loadedmetadata', apply, { once: true });
+  };
+
   document.getElementById('pb-set').onclick = async () => {
     const url = document.getElementById('pb-url').value.trim();
     if (!url) { toast('Please paste a link first.'); return; }
-    try { await writeState(url, 0, false); toast('Set for both of you.'); load(true); }
-    catch (e) { toast(e.message); }
+    const cls = classifyMediaLink(url);
+    if (cls.type === 'invalid') { linkNote(''); toast('That doesn’t look like a link. Paste the full link, starting with https://'); return; }
+    if (cls.type === 'app') {
+      const msg = 'Links from ' + cls.host + ' can’t be played inside another app — their rules, not ours. Paste a YouTube link, or a direct file link (.mp3 / .mp4), and it will play for both of you.';
+      linkNote(msg);
+      toast(msg);
+      return;
+    }
+    linkNote('');
+    const body = buildBody(url, 0, false);
+    applyRow(body, true);
+    toast('Set for both of you.');
+    try { await persist(body); } catch (e) { toast(e.message); }
   };
   document.getElementById('pb-play').onclick = async () => {
-    if (!media.src) return;
-    try { await writeState(media.src, media.currentTime * 1000, true); media.play().catch(() => {}); }
-    catch (e) { toast(e.message); }
+    if (!curUrl) return;
+    const body = buildBody(curUrl, currentPositionMs(), true);
+    applyRow(body, true);
+    try { await persist(body); } catch (e) { toast(e.message); }
   };
   document.getElementById('pb-pause').onclick = async () => {
-    if (!media.src) return;
-    try { await writeState(media.src, media.currentTime * 1000, false); media.pause(); }
-    catch (e) { toast(e.message); }
+    if (!curUrl) return;
+    const body = buildBody(curUrl, currentPositionMs(), false);
+    applyRow(body, true);
+    try { await persist(body); } catch (e) { toast(e.message); }
   };
   const load = async (force) => {
     const rows = await api.get('/playback_state?couple_id=eq.' + S.coupleId + '&select=kind,url,position_ms,playing,updated_by,updated_at');
@@ -561,8 +671,9 @@ function playbackScreen(kind) {
     // video). Never load the partner's video into this audio element
     // (or vice versa) and never write state against the wrong kind.
     const decision = playbackDecision(row, kind);
-    if (decision === 'empty') { if (card) card.hidden = true; if (other) other.hidden = true; return; }
+    if (decision === 'empty') { stopPlayers(); curUrl = ''; if (card) card.hidden = true; if (other) other.hidden = true; return; }
     if (decision === 'other') {
+      stopPlayers(); curUrl = '';
       if (card) card.hidden = true;
       if (other) {
         other.hidden = false;
@@ -571,21 +682,7 @@ function playbackScreen(kind) {
       }
       return;
     }
-    if (other) other.hidden = true;
-    if (card) card.hidden = false;
-    const stamp = row.updated_at + '|' + row.url + '|' + row.playing + '|' + row.position_ms;
-    if (!force && stamp === appliedStamp) return;
-    appliedStamp = stamp;
-    if (media.getAttribute('src') !== row.url) { media.src = row.url; const inp = document.getElementById('pb-url'); if (inp && row.updated_by !== uid()) inp.value = row.url; }
-    const elapsed = row.playing ? (Date.now() - new Date(row.updated_at).getTime()) / 1000 : 0;
-    const target = row.position_ms / 1000 + Math.max(0, elapsed);
-    const apply = () => {
-      if (Math.abs(media.currentTime - target) > 1.5 && media.duration) media.currentTime = Math.min(target, media.duration - 0.2);
-      if (row.playing) media.play().catch(() => { status('Tap the player to start — your partner pressed play.'); });
-      else media.pause();
-      status(row.updated_by === uid() ? 'You set what is playing.' : S.partner.display_name + ' set what is playing.');
-    };
-    if (media.readyState >= 1) apply(); else media.addEventListener('loadedmetadata', apply, { once: true });
+    applyRow(row, force);
   };
   load().catch(() => {});
   every(3000, () => load(false));

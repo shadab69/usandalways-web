@@ -38,6 +38,56 @@ export function playbackDecision(row, kind) {
   return row.kind === kind ? 'mine' : 'other';
 }
 
+// ---- Listen/Watch Together link classification ------------------------------
+// What a pasted "now playing" link actually is. Real users paste YouTube
+// and streaming-app links, not bare media files — and a web-page URL fed
+// to an <audio>/<video> element can never play, which made both Together
+// players feel dead. Classify BEFORE anything is written or played:
+//   {type:'youtube', id} — a YouTube watch / share / shorts / live URL;
+//                          both sides derive the official embed from the
+//                          stored URL, so no schema change is needed.
+//   {type:'app', host}   — a streaming-app link (Spotify, Netflix, …)
+//                          whose own rules block playing inside another
+//                          app: never written, explained to the user.
+//   {type:'direct'}      — anything else that parses as http(s): the
+//                          browser tries the file itself, as before.
+//   {type:'invalid'}     — not a link at all.
+const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const APP_LINK_HOSTS = [
+  'spotify.com', 'netflix.com', 'primevideo.com', 'hotstar.com',
+  'instagram.com', 'facebook.com', 'jiosaavn.com', 'gaana.com', 'wynk.in',
+  'music.apple.com', 'tidal.com', 'vimeo.com', 'dailymotion.com',
+];
+export function classifyMediaLink(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return { type: 'invalid' };
+  let u;
+  try { u = new URL(s); } catch { return { type: 'invalid' }; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { type: 'invalid' };
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  if (host === 'youtu.be' || host.endsWith('.youtu.be')) {
+    const id = (u.pathname.split('/').filter(Boolean)[0] || '');
+    if (YOUTUBE_ID_RE.test(id)) return { type: 'youtube', id };
+  }
+  if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+    if (u.pathname === '/watch') {
+      const id = u.searchParams.get('v') || '';
+      if (YOUTUBE_ID_RE.test(id)) return { type: 'youtube', id };
+    }
+    const m = u.pathname.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]{11})(?:[/?#]|$)/);
+    if (m) return { type: 'youtube', id: m[1] };
+  }
+  // Apple Music also lives under apple.com/music — the rest of apple.com
+  // is an ordinary website, so match the path as well as the host.
+  if (host === 'apple.com' && (u.pathname === '/music' || u.pathname.startsWith('/music/'))) {
+    return { type: 'app', host };
+  }
+  for (const h of APP_LINK_HOSTS) {
+    if (host === h || host.endsWith('.' + h)) return { type: 'app', host };
+  }
+  return { type: 'direct' };
+}
+
 // ---- Bug #4: Conflict Resolution latest answer per user ---------------------
 // conflict_answers has no unique constraint, so several rows per
 // (question, user) can exist. Given rows ordered newest-first OR in any
