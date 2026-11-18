@@ -38,7 +38,12 @@ html[data-theme="cream"] {
 }
 
 /* ---------- Morning Cream component treatment (cream only) ---------- */
-html[data-theme="cream"] body { background: linear-gradient(180deg, #FBEEDD 0%, #FAF2E9 45%, #F7EBDD 100%); }
+html[data-theme="cream"] body {
+  background:
+    radial-gradient(560px 380px at -90px -70px, rgba(248,199,155,.65), rgba(248,199,155,0) 70%),
+    radial-gradient(680px 480px at calc(100% + 90px) calc(100% + 70px), rgba(246,213,221,.60), rgba(246,213,221,0) 70%),
+    linear-gradient(180deg, #FBEEDD 0%, #FAF2E9 45%, #F7EBDD 100%);
+}
 html[data-theme="cream"] #shell { background: transparent; border-left-color: transparent; border-right-color: transparent; }
 html[data-theme="cream"] .card { border-radius: 26px; box-shadow: 0 12px 32px rgba(67,40,24,.08); }
 html[data-theme="cream"] .hub-row { border-radius: 24px; box-shadow: 0 10px 26px rgba(67,40,24,.07); }
@@ -66,6 +71,140 @@ html[data-theme="cream"] .sheet-btn { border-radius: 16px; }
 html[data-theme="cream"] .ttt-cell { border-radius: 20px; }
 html[data-theme="cream"] .ludo-board { border-radius: 24px; }
 html[data-theme="cream"] canvas.draw { border-radius: 20px; }
+
+/* ---------- Morning Cream global polish (cream only) ---------- */
+html[data-theme="cream"] .screen { gap: 14px; }
+html[data-theme="cream"] .topbar { border-bottom-color: transparent; }
+html[data-theme="cream"] .topbar .title {
+  font-family: var(--sans); font-size: 21px; font-weight: 800;
+  color: #432818; letter-spacing: -.01em;
+}
+html[data-theme="cream"] h2.section {
+  font-size: 17px; letter-spacing: 0; text-transform: none;
+  color: #432818; font-weight: 800; margin-top: 14px;
+}
+
+/* ---------- Morning Cream hub rows (cream only) ---------- */
+html[data-theme="cream"] .hub { gap: 14px; }
+html[data-theme="cream"] .hub-row { padding: 14px 18px; gap: 14px; }
+html[data-theme="cream"] .hub-tile { width: 52px; height: 52px; border-radius: 16px; font-size: 22px; }
+html[data-theme="cream"] .hub-name { font-size: 16px; font-weight: 700; color: #432818; }
+html[data-theme="cream"] .hub-desc { font-size: 13px; margin-top: 1px; }
+html[data-theme="cream"] .hub-chevron { color: #C89B72; font-weight: 700; }
+
+/* ---------- Morning Cream Home (cream only) ---------- */
+html[data-theme="cream"] .cream-head { display: flex; align-items: flex-start; gap: 10px; padding: 2px 2px 0; }
+html[data-theme="cream"] .cream-greet {
+  margin: 0; font-size: 27px; line-height: 1.12; font-weight: 800;
+  color: #432818; letter-spacing: -.015em;
+}
+html[data-theme="cream"] .cream-date { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); }
+html[data-theme="cream"] .cream-ava {
+  width: 52px; height: 52px; flex: none; border-radius: 50%;
+  border: 3px solid #F8C79B; background: var(--surfaceSoft); color: #432818;
+  font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 20px rgba(67,40,24,.12);
+  overflow: hidden;
+}
+html[data-theme="cream"] .cream-ava img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+html[data-theme="cream"] .icon-btn.cream-theme-btn { width: 44px; height: 44px; margin-top: 4px; }
+html[data-theme="cream"] .cream-week { display: flex; justify-content: space-between; padding: 6px 4px 2px; }
+html[data-theme="cream"] .cream-day { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+html[data-theme="cream"] .cream-dow { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+html[data-theme="cream"] .cream-dnum {
+  width: 36px; height: 36px; border-radius: 50%; font-size: 14.5px; font-weight: 600;
+  color: var(--ink); display: flex; align-items: center; justify-content: center;
+}
+html[data-theme="cream"] .cream-day.today .cream-dow { color: #432818; font-weight: 800; }
+html[data-theme="cream"] .cream-day.today .cream-dnum {
+  background: #432818; color: #FAF2E9; box-shadow: 0 8px 18px rgba(67,40,24,.30);
+}
+html[data-theme="cream"] .cream-hero {
+  position: relative; overflow: hidden; border-radius: 28px; padding: 20px;
+  background: linear-gradient(135deg, #FBD9B8, #F8C79B);
+  box-shadow: 0 14px 30px rgba(232,131,58,.25);
+}
+html[data-theme="cream"] .cream-hero-text { position: relative; z-index: 1; max-width: 70%; }
+html[data-theme="cream"] .cream-hero-title { margin: 0; font-size: 20px; line-height: 1.2; font-weight: 800; color: #432818; }
+html[data-theme="cream"] .cream-hero-desc { margin: 6px 0 0; font-size: 13.5px; line-height: 1.45; color: rgba(67,40,24,.78); }
+html[data-theme="cream"] .cream-hero-streak { margin: 8px 0 0; font-size: 12.5px; font-weight: 700; color: rgba(67,40,24,.65); }
+html[data-theme="cream"] .cream-hero-btn {
+  margin-top: 14px; width: auto; min-height: 44px; padding: 10px 22px;
+  border-radius: 999px; border: 0; background: #432818; color: #FAF2E9;
+  font: inherit; font-size: 14.5px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 10px 22px rgba(67,40,24,.30);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+html[data-theme="cream"] .cream-hero-art {
+  position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  width: 86px; height: 86px; border-radius: 50%;
+  background: rgba(255,253,248,.45); font-size: 42px;
+  display: flex; align-items: center; justify-content: center;
+}
+html[data-theme="cream"] .cream-sec-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin: 6px 2px 0;
+}
+html[data-theme="cream"] .cream-sec-title { margin: 0; font-size: 18px; font-weight: 800; color: #432818; }
+html[data-theme="cream"] .cream-sec-link {
+  background: none; border: 0; font: inherit; font-size: 13.5px; font-weight: 700;
+  color: var(--accentInk); cursor: pointer; padding: 4px 0; flex: none;
+}
+html[data-theme="cream"] .cream-list {
+  position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 26px; box-shadow: 0 12px 32px rgba(67,40,24,.08); padding: 4px 16px;
+}
+html[data-theme="cream"] .cream-list::before {
+  content: ''; position: absolute; left: 28px; top: 30px; bottom: 30px;
+  border-left: 2px dotted #EFD9BE;
+}
+html[data-theme="cream"] .cream-row {
+  position: relative; display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 0; background: none; border: 0; border-bottom: 1px solid var(--borderSoft);
+  font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+}
+html[data-theme="cream"] .cream-row:last-child { border-bottom: 0; }
+html[data-theme="cream"] .cream-row.static { cursor: default; }
+html[data-theme="cream"] .cream-row:active { transform: scale(.995); }
+html[data-theme="cream"] .cream-marker {
+  position: relative; z-index: 1; width: 26px; height: 26px; flex: none;
+  border-radius: 50%; border: 2px solid #E7CFAF; background: var(--surface);
+  color: #fff; font-size: 14px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+html[data-theme="cream"] .cream-marker.done { background: #E8833A; border-color: #E8833A; }
+html[data-theme="cream"] .cream-tile {
+  width: 46px; height: 46px; flex: none; border-radius: 14px; background: #FBE3C5;
+  display: flex; align-items: center; justify-content: center; font-size: 21px;
+}
+html[data-theme="cream"] .cream-tile.tile-peach { background: #FBE3C5; }
+html[data-theme="cream"] .cream-tile.tile-mint { background: #DDE8C9; }
+html[data-theme="cream"] .cream-tile.tile-pink { background: #F6D5DD; }
+html[data-theme="cream"] .cream-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+html[data-theme="cream"] .cream-row-name {
+  font-size: 15.5px; font-weight: 700; color: #3B2A20;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+html[data-theme="cream"] .cream-row-sub {
+  font-size: 12.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+html[data-theme="cream"] .cream-chev { color: #C89B72; font-size: 20px; font-weight: 700; flex: none; }
+html[data-theme="cream"] .cream-fab {
+  position: fixed; right: max(18px, calc(50vw - 222px));
+  bottom: calc(98px + env(safe-area-inset-bottom));
+  width: 56px; height: 56px; border-radius: 50%; border: 0; z-index: 30;
+  background: #432818; color: #FAF2E9; font-size: 22px; cursor: pointer;
+  box-shadow: 0 14px 30px rgba(67,40,24,.38);
+  display: flex; align-items: center; justify-content: center;
+}
+@media (max-width: 380px) {
+  html[data-theme="cream"] .cream-greet { font-size: 24px; }
+  html[data-theme="cream"] .cream-hero-art { width: 68px; height: 68px; font-size: 34px; right: 12px; }
+  html[data-theme="cream"] .cream-hero-text { max-width: 68%; }
+  html[data-theme="cream"] .cream-dnum { width: 33px; height: 33px; }
+}
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -190,7 +329,9 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .partner-ava {
   width: 56px; height: 56px; border-radius: 28px; background: var(--surfaceSoft); color: var(--accentInk);
   display: flex; align-items: center; justify-content: center; font-family: var(--serif); font-size: 24px; flex: none;
+  overflow: hidden;
 }
+.partner-ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .flex { display: flex; align-items: center; gap: 12px; }
 
 /* ---------- Chat ---------- */

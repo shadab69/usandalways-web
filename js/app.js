@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.6';
+const BUILD_ID = '2026-11-18.7';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -295,7 +295,7 @@ export async function loadCouple() {
   const members = await api.get('/couple_members?couple_id=eq.' + S.coupleId + '&select=user_id');
   const partnerId = members.map((m) => m.user_id).find((x) => x !== uid());
   if (partnerId) {
-    const profs = await api.get('/profiles?id=eq.' + partnerId + '&select=id,display_name,role,battery_share,arrival_share');
+    const profs = await api.get('/profiles?id=eq.' + partnerId + '&select=id,display_name,role,battery_share,arrival_share,avatar_data');
     S.partner = profs[0] || null;
   }
   await refreshPartnerKey();
@@ -388,7 +388,7 @@ registerScreen('auth', () => {
           }
           if (!uid()) await api.logIn(email, password);
           if (!uid()) throw new Error('We could not read your new account. Please try signing in.');
-          const existing = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+          const existing = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share,avatar_data');
           if (existing.length) {
             // Profile already exists for this account: continue as a
             // sign-in (afterLogin routes to key setup/unlock as needed).
@@ -433,7 +433,7 @@ async function setupKeys(password, fresh) {
 }
 
 async function afterLogin(password) {
-  const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+  const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share,avatar_data');
   if (!profs.length) { showScreen('profileSetup', { password }); return; }
   S.me = profs[0];
   const wrapped = ls.get('wrappedKey:' + uid(), null);
@@ -497,7 +497,7 @@ registerScreen('profileSetup', (param) => {
         if (e.status !== 409) throw e;
         // Profile already exists (e.g. an earlier attempt got further
         // than it looked): fetch it and continue.
-        const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+        const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share,avatar_data');
         if (!profs.length) throw e;
         S.me = profs[0];
       }
@@ -617,7 +617,7 @@ function startGlobalLoops() {
           if (t) t.textContent = (S.partner ? S.partner.display_name : 'Your partner') + ' is typing…';
         } else if (ev.kind === 'battery') {
           const pct = parseInt(ev.payload, 10);
-          if (!Number.isNaN(pct)) { S.partnerBattery = pct; const b = document.getElementById('home-battery'); if (b) b.textContent = 'Your partner’s battery: ' + pct + '%'; }
+          if (!Number.isNaN(pct)) { S.partnerBattery = pct; const b = document.getElementById('home-battery'); if (b) b.textContent = 'Your partner’s battery: ' + pct + '%'; const cb = document.getElementById('cream-batt-sub'); if (cb) cb.textContent = 'Battery ' + pct + '%'; }
         } else if (ev.kind === 'presence' && String(ev.payload || '').startsWith('arrival:')) {
           const label = ev.payload.substring('arrival:'.length);
           toast('📍 ' + (S.partner ? S.partner.display_name : 'Your partner') + ' reached ' + label + '.');
@@ -760,7 +760,7 @@ function syncRealtime() {
 // ---------------------------------------------------------------- enter the app
 export async function enterApp() {
   if (!S.me) {
-    const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+    const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share,avatar_data');
     S.me = profs[0] || null;
   }
   if (!ls.get(prefKey('startDate'), null)) ls.set(prefKey('startDate'), todayIso());
@@ -779,21 +779,26 @@ registerScreen('home', () => {
   const ann = rcAnnouncement();
   const annDismissed = ls.get('announceDismissed', '');
   const themeBtn = '<button class="icon-btn" id="h-theme" aria-label="Switch theme">' + ({ dark: '🌙', cream: '🌅', warm: '☀️' }[nextTheme()]) + '</button>';
-  let html = topbar('US & Always', { right: themeBtn });
-  html += '<div class="screen fill" id="home-live">';
-  if (ann && ann !== annDismissed) html += '<div class="announce"><span>📣 ' + esc(ann) + '</span><button id="h-ann-x">Dismiss</button></div>';
-  html += '<p class="lede" style="margin-top:6px">' + esc(greeting) + '</p>';
-  // Anniversary
+  // Anniversary card (computed once; both Home layouts use it)
   const sd = startDate();
   const today = new Date(); const start = new Date(sd + 'T00:00:00');
   const annivThisYear = new Date(today.getFullYear(), start.getMonth(), start.getDate());
   const diffDays = Math.round((annivThisYear - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
-  if (diffDays === 0 && todayIso() !== sd) html += '<div class="card"><h3>🎉 Happy anniversary!</h3><p class="muted small">Today is your special day.</p></div>';
-  else if (diffDays > 0 && diffDays <= 7) html += '<div class="card"><h3>🎉 Your anniversary is coming up</h3><p class="muted small">Your anniversary is coming up on ' + annivThisYear.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) + '.</p></div>';
+  let annivHtml = '';
+  if (diffDays === 0 && todayIso() !== sd) annivHtml = '<div class="card"><h3>🎉 Happy anniversary!</h3><p class="muted small">Today is your special day.</p></div>';
+  else if (diffDays > 0 && diffDays <= 7) annivHtml = '<div class="card"><h3>🎉 Your anniversary is coming up</h3><p class="muted small">Your anniversary is coming up on ' + annivThisYear.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) + '.</p></div>';
+  // Morning Cream gets a structurally different Home (reference layout);
+  // Warm Editorial and Dark Luxe render exactly as before.
+  if (themeMode() === 'cream') { renderCreamHome({ ann, annDismissed, annivHtml, days }); return; }
+  let html = topbar('US & Always', { right: themeBtn });
+  html += '<div class="screen fill" id="home-live">';
+  if (ann && ann !== annDismissed) html += '<div class="announce"><span>📣 ' + esc(ann) + '</span><button id="h-ann-x">Dismiss</button></div>';
+  html += '<p class="lede" style="margin-top:6px">' + esc(greeting) + '</p>';
+  html += annivHtml;
   // Partner card
   html += '<div class="card">';
   if (S.partner) {
-    html += '<div class="flex"><div class="partner-ava">' + esc(initials(S.partner.display_name)) + '</div><div class="grow"><div style="font-size:17px;font-weight:600">' + esc(S.partner.display_name) + '</div><div class="muted small">' + esc(S.partner.role) + ' · Linked with you</div></div></div>';
+    html += '<div class="flex"><div class="partner-ava">' + avatarInner(S.partner) + '</div><div class="grow"><div style="font-size:17px;font-weight:600">' + esc(S.partner.display_name) + '</div><div class="muted small">' + esc(S.partner.role) + ' · Linked with you</div></div></div>';
     html += '<div style="margin-top:14px" class="flex"><span class="hero-days">' + days + '</span><span class="muted">' + (days === 1 ? 'day together' : 'days together') + '</span></div>';
     html += '<p class="small" id="home-streak" style="margin:10px 0 0">' + esc(homeCache.streakText && homeCache.coupleId === S.coupleId ? homeCache.streakText : 'Loading your streak…') + '</p>';
     html += '<p class="small muted" id="home-checkin" style="margin:4px 0 0">' + esc(homeCache.coupleId === S.coupleId && homeCache.checkinDay === todayIso() && homeCache.checkinMood ? 'Today’s check-ins — You: ' + homeCache.checkinMood + ' · ' + S.partner.display_name + ': …' : 'Loading today’s check-ins…') + '</p>';
@@ -836,8 +841,186 @@ registerScreen('home', () => {
   document.getElementById('h-room').onclick = () => showScreen('room');
   if (S.partner) loadHomeLive();
 });
+
+// ---------------------------------------------------------------- Home — Morning Cream layout
+// A structural re-skin of the same Home data and actions in the
+// reference layout: greeting header with avatar, a real week strip,
+// a peach highlight card, routine-style rows with state markers, and
+// a floating compose button. Rendered only when themeMode()==='cream'.
+function renderCreamHome({ ann, annDismissed, annivHtml, days }) {
+  const now = new Date();
+  const hour = now.getHours();
+  const greetWord = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+  const myName = S.me && S.me.display_name ? S.me.display_name : '';
+  const firstName = myName.trim().split(/\s+/)[0] || 'friend';
+  const dateLine = now.toLocaleDateString('en-GB', { weekday: 'long' }) + ', ' + now.getDate() + ' ' +
+    now.toLocaleDateString('en-GB', { month: 'long' }) + ', ' + now.getFullYear();
+  // The real current week (Mon–Sun); today is the filled day.
+  const dowNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const todayDow = (now.getDay() + 6) % 7; // Monday = 0
+  let weekHtml = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now); d.setDate(now.getDate() - todayDow + i);
+    weekHtml += '<div class="cream-day' + (i === todayDow ? ' today' : '') + '"><span class="cream-dow">' + dowNames[i] + '</span><span class="cream-dnum">' + d.getDate() + '</span></div>';
+  }
+  const themeBtn = '<button class="icon-btn cream-theme-btn" id="h-theme" aria-label="Switch theme">' + ({ dark: '🌙', cream: '🌅', warm: '☀️' }[nextTheme()]) + '</button>';
+  let html = '<div class="screen fill" id="home-live">';
+  // Header: greeting + date, theme toggle, partner avatar (→ Chat).
+  html += '<div class="cream-head"><div class="grow"><h1 class="cream-greet">' + esc(greetWord) + ', ' + esc(firstName) + '.</h1>' +
+    '<p class="cream-date">' + esc(dateLine) + '</p></div>' + themeBtn +
+    '<button class="cream-ava" id="h-ava" aria-label="' + (S.partner ? 'Open chat with ' + esc(S.partner.display_name) : 'Open Settings to link with your partner') + '">' + avatarInner(S.partner ? S.partner : S.me) + '</button></div>';
+  html += '<div class="cream-week">' + weekHtml + '</div>';
+  // Peach highlight card: an announcement takes this slot when one is
+  // live; otherwise it is the couple card (or the link card).
+  const showAnn = ann && ann !== annDismissed;
+  if (showAnn) {
+    html += '<div class="cream-hero"><div class="cream-hero-text"><h2 class="cream-hero-title">A note for the two of you</h2>' +
+      '<p class="cream-hero-desc">' + esc(ann) + '</p>' +
+      '<button class="cream-hero-btn" id="h-ann-x">Dismiss</button></div><div class="cream-hero-art" aria-hidden="true">📣</div></div>';
+  } else if (S.partner) {
+    const heroDesc = S.partnerBattery !== null
+      ? esc(S.partner.display_name) + '’s battery is at ' + S.partnerBattery + '% right now.'
+      : (days === 0 ? 'Your very first day together — counting the days with you.'
+        : (days === 1 ? 'Day 1 together' : 'Day ' + days + ' together') + ' — counting the days with you.');
+    const streakText = homeCache.streakText && homeCache.coupleId === S.coupleId ? homeCache.streakText : 'Loading your streak…';
+    html += '<div class="cream-hero"><div class="cream-hero-text"><h2 class="cream-hero-title">' + esc(S.partner.display_name) + '</h2>' +
+      '<p class="cream-hero-desc">' + heroDesc + '</p>' +
+      '<p class="cream-hero-streak" id="home-streak">' + esc(streakText) + '</p>' +
+      '<button class="cream-hero-btn" id="h-hero-chat">Say hello</button></div><div class="cream-hero-art" aria-hidden="true">💗</div></div>';
+    html += '<p class="tiny muted" style="margin:2px 4px 0">Only your two devices can read your messages — each one is locked before it leaves your device, and nobody in between can open it.</p>';
+  } else {
+    html += '<div class="cream-hero"><div class="cream-hero-text"><h2 class="cream-hero-title">Your partner has not linked yet</h2>' +
+      '<p class="cream-hero-desc">Share your invitation code from Settings so the two of you can connect.</p>' +
+      '<p class="cream-hero-streak">' + days + (days === 1 ? ' day together' : ' days together') + '</p>' +
+      '<button class="cream-hero-btn" id="h-link">Link with your partner</button></div><div class="cream-hero-art" aria-hidden="true">💌</div></div>';
+  }
+  html += annivHtml;
+  // Today: routine-style rows reusing the real check-in / tap / battery.
+  if (S.partner) {
+    const cachedMood = homeCache.coupleId === S.coupleId && homeCache.checkinDay === todayIso() ? homeCache.checkinMood : '';
+    html += '<div class="cream-sec-head"><h2 class="cream-sec-title">Today</h2><button class="cream-sec-link" id="h-room">Open Room</button></div>';
+    html += '<div class="cream-list">';
+    html += '<button class="cream-row" id="h-checkin"><span class="cream-marker' + (cachedMood ? ' done' : '') + '" id="cream-ci-marker">' + (cachedMood ? '✓' : '') + '</span>' +
+      '<span class="cream-tile tile-pink">🌸</span><span class="cream-row-text"><span class="cream-row-name">Daily check-in</span>' +
+      '<span class="cream-row-sub" id="cream-ci-sub">' + (cachedMood ? 'You: ' + esc(cachedMood) + ' · ' + esc(S.partner.display_name) + ': …' : 'Loading today’s check-ins…') + '</span></span><span class="cream-chev">›</span></button>';
+    html += '<button class="cream-row" id="h-tap"><span class="cream-marker"></span>' +
+      '<span class="cream-tile tile-peach">💗</span><span class="cream-row-text"><span class="cream-row-name">Tap to Feel</span>' +
+      '<span class="cream-row-sub" id="cream-tap-sub">Send a tap</span></span></button>';
+    if (S.partner.battery_share) {
+      html += '<div class="cream-row static"><span class="cream-marker"></span>' +
+        '<span class="cream-tile tile-mint">🔋</span><span class="cream-row-text"><span class="cream-row-name">' + esc(S.partner.display_name) + '’s battery</span>' +
+        '<span class="cream-row-sub" id="cream-batt-sub">' + (S.partnerBattery !== null ? 'Battery ' + S.partnerBattery + '%' : 'Sharing is on — it appears once their app is open') + '</span></span></div>';
+    }
+    html += '</div>';
+    html += '<p class="tiny muted" id="h-tap-status" style="margin:0 4px"></p>';
+  }
+  // Quick sections as routine-style rows with cycling pastel tiles.
+  const quickRows = [
+    ['h-chat', '💬', 'Private chat', 'Messages, photos and voice notes, locked end to end', 'chat'],
+    ['h-together', '🎵', 'Together', 'Playlist, listen, watch, draw and read — side by side', 'together'],
+    ['h-memories', '💌', 'Memories', 'Album, journey, bucket list and gifts', 'memories'],
+  ];
+  const tileCycle = ['tile-peach', 'tile-mint', 'tile-pink'];
+  html += '<div class="cream-sec-head"><h2 class="cream-sec-title">Just the two of you</h2></div>';
+  html += '<div class="cream-list">' + quickRows.map((r, i) =>
+    '<button class="cream-row" id="' + r[0] + '"><span class="cream-marker"></span>' +
+    '<span class="cream-tile ' + tileCycle[i % 3] + '">' + r[1] + '</span><span class="cream-row-text"><span class="cream-row-name">' + r[2] + '</span>' +
+    '<span class="cream-row-sub">' + r[3] + '</span></span><span class="cream-chev">›</span></button>').join('') + '</div>';
+  // Floating compose button — a real action: it opens the chat.
+  html += '<button class="cream-fab" id="h-fab" aria-label="Write a message">✎</button>';
+  html += '<div class="grow"></div></div>';
+  appEl().innerHTML = html;
+  document.getElementById('h-theme').onclick = () => { setTheme(nextTheme()); showScreen('home'); };
+  const annX = document.getElementById('h-ann-x');
+  if (annX) annX.onclick = () => { ls.set('announceDismissed', ann); showScreen('home'); };
+  document.getElementById('h-ava').onclick = () => showScreen(S.partner ? 'chat' : 'settings');
+  const linkBtn = document.getElementById('h-link');
+  if (linkBtn) linkBtn.onclick = () => showScreen('settings');
+  const heroChat = document.getElementById('h-hero-chat');
+  if (heroChat) heroChat.onclick = () => showScreen('chat');
+  document.getElementById('h-fab').onclick = () => showScreen('chat');
+  for (const [id, , , , target] of quickRows) document.getElementById(id).onclick = () => showScreen(target);
+  if (S.partner) {
+    document.getElementById('h-checkin').onclick = () => showScreen('checkin');
+    document.getElementById('h-room').onclick = () => showScreen('room');
+    const tap = document.getElementById('h-tap');
+    tap.onclick = async () => {
+      const status = document.getElementById('h-tap-status');
+      tap.disabled = true;
+      try {
+        await api.post('/events', { couple_id: S.coupleId, sender_id: uid(), kind: 'tap_to_feel', payload: '' });
+        status.textContent = 'Sent. Your partner will feel it when their app is open.';
+        loadCreamTap();
+      } catch (e) {
+        status.textContent = 'Could not send: ' + e.message;
+      }
+      tap.disabled = false;
+    };
+    loadHomeLive();
+    loadCreamTap();
+  }
+}
+/** Fills the cream Tap to Feel sub-line with the real last tap (events table). */
+async function loadCreamTap() {
+  try {
+    const rows = await api.get('/events?couple_id=eq.' + S.coupleId + '&kind=eq.tap_to_feel&order=id.desc&limit=1&select=sender_id,created_at');
+    const el = document.getElementById('cream-tap-sub');
+    if (!el) return;
+    if (!rows.length) { el.textContent = 'Send a tap'; return; }
+    const when = tapWhen(new Date(rows[0].created_at));
+    el.textContent = rows[0].sender_id === uid()
+      ? 'You sent the last tap · ' + when
+      : (S.partner ? S.partner.display_name : 'Your partner') + ' sent the last tap · ' + when;
+  } catch { /* the row keeps its default sub-line */ }
+}
+function tapWhen(d) {
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const day = todayIso(d);
+  if (day === todayIso()) return 'today at ' + time;
+  if (day === prevIsoDay(todayIso())) return 'yesterday at ' + time;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' at ' + time;
+}
 export function initials(name) {
   return String(name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+}
+/** Inner HTML for an avatar circle: the person's profile photo when
+ * they have set one (a small JPEG data URL stored on their profile),
+ * otherwise their initials. Only data:image URLs are ever rendered. */
+export function avatarInner(person) {
+  if (person && typeof person.avatar_data === 'string' && person.avatar_data.startsWith('data:image/')) {
+    return '<img alt="" src="' + person.avatar_data + '">';
+  }
+  return esc(initials(person ? person.display_name : '?'));
+}
+/** Turns a picked image file into a small profile-photo data URL:
+ * centre-cropped to a square and shrunk to 256×256 JPEG before it is
+ * stored — the original file never leaves the device. If the result
+ * is still over ~120 KB it is re-encoded once, smaller and lighter;
+ * beyond that the caller shows an honest error. */
+export function fileToAvatarDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type || '')) { reject(new Error('not-image')); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      if (!side) { reject(new Error('bad-image')); return; }
+      const sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2;
+      const encode = (size, q) => {
+        const c = document.createElement('canvas');
+        c.width = size; c.height = size;
+        c.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size);
+        return c.toDataURL('image/jpeg', q);
+      };
+      let out = encode(256, 0.8);
+      if (out.length > 120 * 1024) out = encode(176, 0.65);
+      if (out.length > 120 * 1024) { reject(new Error('too-big')); return; }
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad-image')); };
+    img.src = url;
+  });
 }
 // Live obs (b)/(c): the last computed Home streak + my today's check-in
 // mood are cached per couple, so returning to Home shows them instantly
@@ -859,6 +1042,13 @@ async function loadHomeLive() {
     const myMood = mine ? mine.mood : (homeCache.coupleId === S.coupleId && homeCache.checkinDay === today ? homeCache.checkinMood : '');
     const ci = document.getElementById('home-checkin');
     if (ci) ci.textContent = 'Today’s check-ins — You: ' + (myMood || 'Not yet') + ' · ' + (S.partner ? S.partner.display_name : 'Partner') + ': ' + (theirs ? theirs.mood : 'Not yet');
+    // Morning Cream Home: same live data fills the routine row
+    // (sub-line + the circular done marker). Elements exist only in
+    // the cream layout, so the classic themes are untouched.
+    const csub = document.getElementById('cream-ci-sub');
+    if (csub) csub.textContent = 'You: ' + (myMood || 'Not yet') + ' · ' + (S.partner ? S.partner.display_name : 'Partner') + ': ' + (theirs ? theirs.mood : 'Not yet');
+    const cmark = document.getElementById('cream-ci-marker');
+    if (cmark) { const done = !!myMood; cmark.classList.toggle('done', done); cmark.textContent = done ? '✓' : ''; }
     // Streak: days with a check-in (either partner) or a message, up to today.
     const days = new Set(checkins.map(() => today));
     const allCheckins = await api.get('/checkins?couple_id=eq.' + S.coupleId + '&select=day');
@@ -1492,6 +1682,14 @@ registerScreen('settings', () => {
     const pin = ls.get(pinKey(), null);
     appEl().innerHTML = topbar('Settings', { subtitle: S.me ? S.me.display_name + ' · ' + S.me.role : '' }) +
       '<div class="screen">' +
+      // Profile photo
+      '<h2 class="section">Profile</h2><div class="card">' +
+      '<div class="flex"><div class="partner-ava">' + avatarInner(S.me) + '</div>' +
+      '<div class="grow"><div style="font-weight:600">' + esc(S.me ? S.me.display_name : '') + '</div><div class="muted small">' + esc(S.me ? S.me.role : '') + '</div></div></div>' +
+      '<div style="height:12px"></div><div class="btn-row"><button class="btn btn-soft" id="s-ava-change">' + (S.me && S.me.avatar_data ? 'Change photo' : 'Add a photo') + '</button>' +
+      (S.me && S.me.avatar_data ? '<button class="btn btn-ghost" id="s-ava-remove">Remove photo</button>' : '') + '</div>' +
+      '<input type="file" id="s-ava-file" accept="image/*" hidden>' +
+      '<p class="tiny muted" style="margin:8px 0 0">Your photo is saved with your profile, so your partner sees it in the app too. It is cropped to a small square and shrunk on this device first — the original file never leaves your phone or computer.</p></div>' +
       // Appearance
       '<h2 class="section">Appearance</h2><div class="card">' +
       '<div class="btn-row"><button class="btn ' + (themeMode() === 'warm' ? 'btn-primary' : 'btn-soft') + '" id="s-warm">☀️ Warm Editorial</button>' +
@@ -1568,6 +1766,40 @@ registerScreen('settings', () => {
     document.getElementById('s-warm').onclick = () => { setTheme('warm'); render(); };
     document.getElementById('s-dark').onclick = () => { setTheme('dark'); render(); };
     document.getElementById('s-cream').onclick = () => { setTheme('cream'); render(); };
+    // Profile photo: pick → shrink on-device → save to profiles.avatar_data.
+    const avaFile = document.getElementById('s-ava-file');
+    const avaChange = document.getElementById('s-ava-change');
+    avaChange.onclick = () => avaFile.click();
+    avaFile.onchange = async () => {
+      const f = avaFile.files && avaFile.files[0];
+      avaFile.value = '';
+      if (!f) return;
+      if (!/^image\//.test(f.type || '')) { toast('That file is not a photo. Please pick an image.'); return; }
+      avaChange.disabled = true; avaChange.textContent = 'Saving…';
+      try {
+        const dataUrl = await fileToAvatarDataUrl(f);
+        await api.patch('/profiles?id=eq.' + uid(), { avatar_data: dataUrl });
+        if (S.me) S.me.avatar_data = dataUrl;
+        toast('Your profile photo is saved.');
+        render();
+      } catch (e) {
+        toast(e.message === 'too-big' ? 'That photo is too detailed to keep as a small profile picture. Please try a simpler photo.'
+          : (e.message === 'not-image' || e.message === 'bad-image') ? 'That file could not be read as a photo.'
+          : 'Could not save your photo: ' + e.message);
+        avaChange.disabled = false;
+        avaChange.textContent = S.me && S.me.avatar_data ? 'Change photo' : 'Add a photo';
+      }
+    };
+    const avaRemove = document.getElementById('s-ava-remove');
+    if (avaRemove) avaRemove.onclick = async () => {
+      avaRemove.disabled = true;
+      try {
+        await api.patch('/profiles?id=eq.' + uid(), { avatar_data: null });
+        if (S.me) S.me.avatar_data = null;
+        toast('Your profile photo has been removed.');
+        render();
+      } catch (e) { toast('Could not remove your photo: ' + e.message); avaRemove.disabled = false; }
+    };
     document.getElementById('s-start-save').onclick = () => {
       const v = document.getElementById('s-start').value;
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { ls.set(prefKey('startDate'), v); toast('Start date saved.'); }
@@ -1693,7 +1925,7 @@ applyTheme();
   const session = api.loadSession();
   if (!session) { showScreen('onboarding'); return; }
   try {
-    const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share');
+    const profs = await api.get('/profiles?id=eq.' + uid() + '&select=id,display_name,role,battery_share,arrival_share,avatar_data');
     S.me = profs[0] || null;
   } catch { S.me = null; }
   const pin = ls.get(pinKey(), null);
