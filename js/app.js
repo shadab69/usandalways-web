@@ -11,7 +11,7 @@ import { createRealtimeClient } from './realtime.mjs';
 /** Visible build stamp (Settings → Good to know) so any test or bug
  * report can certify exactly which code the browser was running —
  * GitHub Pages serves cached copies for up to ~10 minutes. */
-const BUILD_ID = '2026-11-18.24';
+const BUILD_ID = '2026-11-18.25';
 import { initFeatures } from './features.mjs';
 
 // ---------------------------------------------------------------- state
@@ -398,7 +398,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 if (typeof window !== 'undefined' && window.addEventListener) {
   const pressStart = new WeakMap();
   document.addEventListener('pointerdown', (e) => {
-    const t = e.target && e.target.closest ? e.target.closest('button, .hub-row, .list-row, .switch-row, .cream-ava, .partner-ava') : null;
+    const t = e.target && e.target.closest ? e.target.closest('button, .hub-row, .list-row, .switch-row, .cream-ava, .partner-ava, .switch, .bubble, .ludo-token, .ttt-cell, .cream-marker, .hb-act, .cream-row, .hub-tile') : null;
     if (!t || t.disabled) return;
     pressStart.set(t, Date.now());
     t.classList.add('pressed');

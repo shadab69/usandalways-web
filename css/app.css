@@ -592,8 +592,10 @@ iframe.map { width: 100%; height: 240px; border: 1px solid var(--border); border
   -webkit-tap-highlight-color: transparent;
 }
 @media (hover: hover) and (pointer: fine) {
-  .btn:hover, .chip:hover, .icon-btn:hover, #tabbar button:hover, .sheet-btn:hover { filter: brightness(1.06); }
-  .hub-row:hover, .list-row:hover, .cream-row:hover { filter: brightness(1.03); }
+  .btn:hover, .chip:hover, .icon-btn:hover, #tabbar button:hover, .sheet-btn:hover, .bubble-menu:hover, .emoji-row button:hover, .hb-act:hover { filter: brightness(1.06); }
+  .hub-row:hover, .list-row:hover, .cream-row:hover, .bubble:hover, .ttt-cell:hover { filter: brightness(1.03); }
+  .ludo-token:hover, .cream-marker:hover { filter: brightness(1.12); }
+  .switch:hover .track { filter: brightness(1.08); }
 }
 .btn:active, .chip:active, .icon-btn:active, #tabbar button:active, .sheet-btn:active, .bubble-menu:active, .emoji-row button:active {
   transform: scale(.90);
@@ -614,7 +616,7 @@ iframe.map { width: 100%; height: 240px; border: 1px solid var(--border); border
 /* ---- Guaranteed press feedback (.pressed is added by script on
    pointerdown and kept until release, min ~180ms): every tap visibly
    dips, even where :active alone is too quick to see. ---- */
-button, .hub-row, .list-row, .switch-row { transition: transform .15s ease, filter .15s ease, background-color .15s ease; }
+button, .hub-row, .list-row, .switch-row, .switch, .bubble, .ludo-token, .ttt-cell, .cream-marker, .hb-act, .cream-row { transition: transform .15s ease, filter .15s ease, background-color .15s ease; }
 .pressed { transform: scale(.93) !important; filter: brightness(.92) !important; }
 
 /* Home bucket list (full list + add/edit/done/delete right on Home,
