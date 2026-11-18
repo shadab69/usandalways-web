@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>US &amp; Always — 6 Design Directions</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #101014; color: #F2F2F5; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 28px 16px 60px; }
+  .page-head { max-width: 1180px; margin: 0 auto 26px; text-align: center; }
+  .page-head h1 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+  .page-head p { color: #A7A7B3; font-size: 14.5px; margin-top: 8px; line-height: 1.55; }
+  .grid { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 34px 22px; justify-items: center; }
+  .option { width: 320px; }
+  .opt-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .opt-num { background: #FF5C8A; color: #fff; font-weight: 800; font-size: 13px; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; transform: translateY(4px); }
+  .opt-name { font-size: 17px; font-weight: 800; }
+  .opt-feel { color: #A7A7B3; font-size: 13px; line-height: 1.5; margin: 0 0 12px 34px; }
+  .phone { width: 320px; height: 620px; border-radius: 38px; overflow: hidden; position: relative; box-shadow: 0 24px 60px rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.14); font-size: 13px; }
+  .scr { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 16px 16px 0; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; font-weight: 800; font-size: 13.5px; margin-bottom: 12px; }
+  .ava { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex: none; }
+  .greet { font-size: 21px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
+  .dateline { font-size: 11.5px; margin-top: 3px; }
+  .hero { margin-top: 13px; padding: 14px; position: relative; }
+  .hero .pname { font-size: 17px; font-weight: 800; }
+  .hero .pdesc { font-size: 12px; margin-top: 3px; line-height: 1.45; }
+  .hero .pbtn { display: inline-block; margin-top: 10px; padding: 7px 14px; font-size: 12px; font-weight: 700; }
+  .sec-title { font-size: 14.5px; font-weight: 800; margin: 15px 2px 8px; display: flex; justify-content: space-between; align-items: baseline; }
+  .sec-title .seeall { font-size: 11.5px; font-weight: 700; }
+  .card { padding: 11px 12px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+  .row + .row { margin-top: 7px; }
+  .tile { width: 34px; height: 34px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .row .rt { flex: 1; min-width: 0; }
+  .row .rn { font-weight: 700; font-size: 13px; line-height: 1.3; }
+  .row .rs { font-size: 11px; margin-top: 1px; line-height: 1.35; }
+  .chev { font-size: 15px; font-weight: 700; opacity: .45; }
+  .tabbar { margin-top: auto; display: flex; justify-content: space-around; align-items: center; padding: 9px 4px 13px; }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 9.5px; font-weight: 600; }
+  .tab .ti { font-size: 16px; line-height: 1; }
+  .grow { flex: 1; }
+
+  /* ---------- 1 · Fintech Clean ---------- */
+  .s1 { background: #FFFFFF; color: #0B0D12; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s1 .ava { background: #0B0D12; color: #fff; }
+  .s1 .dateline { color: #8A8F98; }
+  .s1 .hero { background: #0B0D12; color: #fff; border-radius: 20px; }
+  .s1 .hero .pdesc { color: #B9BEC9; }
+  .s1 .hero .pbtn { background: #2E6BFF; color: #fff; border-radius: 999px; }
+  .s1 .card, .s1 .row { background: #F6F7F9; border: 1px solid #E8EAEF; border-radius: 16px; }
+  .s1 .tile { background: #E4EBFF; border-radius: 11px; }
+  .s1 .rs { color: #8A8F98; }
+  .s1 .seeall { color: #2E6BFF; }
+  .s1 .tabbar { background: #fff; border-top: 1px solid #ECEEF2; color: #9AA0AA; }
+  .s1 .tab.on { color: #0B0D12; }
+
+  /* ---------- 2 · iOS Glass ---------- */
+  .s2 { background: linear-gradient(165deg, #FDE8F1 0%, #E4E9FF 52%, #DFF5EC 100%); color: #23202B; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s2 .ava { background: rgba(255,255,255,.75); color: #B03A6B; border: 1px solid rgba(255,255,255,.9); }
+  .s2 .dateline { color: #7C7690; }
+  .s2 .hero { background: linear-gradient(120deg, rgba(255,150,190,.75), rgba(255,183,140,.75)); border: 1px solid rgba(255,255,255,.75); border-radius: 24px; box-shadow: 0 12px 28px rgba(214,120,160,.28); color: #4A1030; }
+  .s2 .hero .pdesc { color: rgba(74,16,48,.75); }
+  .s2 .hero .pbtn { background: #23202B; color: #fff; border-radius: 999px; }
+  .s2 .card, .s2 .row { background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.8); border-radius: 20px; box-shadow: 0 8px 22px rgba(120,110,180,.13); backdrop-filter: blur(8px); }
+  .s2 .tile { background: rgba(255,255,255,.85); border-radius: 12px; }
+  .s2 .rs { color: #7C7690; }
+  .s2 .seeall { color: #B03A6B; }
+  .s2 .tabbar { background: rgba(255,255,255,.65); border: 1px solid rgba(255,255,255,.85); border-radius: 999px; margin: 0 2px 12px; color: #8B86A0; box-shadow: 0 10px 26px rgba(120,110,180,.18); backdrop-filter: blur(10px); }
+  .s2 .tab.on { color: #23202B; }
+
+  /* ---------- 3 · Playful Pop ---------- */
+  .s3 { background: #FFF6E0; color: #1E1E1E; font-family: "Arial Rounded MT Bold", -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s3 .ava { background: #FFC93C; border: 2.5px solid #1E1E1E; color: #1E1E1E; }
+  .s3 .dateline { color: #8A7B52; font-weight: 700; }
+  .s3 .greet { font-weight: 900; }
+  .s3 .hero { background: #FF8A65; border: 2.5px solid #1E1E1E; border-radius: 22px; box-shadow: 5px 5px 0 #1E1E1E; color: #2A130B; }
+  .s3 .hero .pdesc { color: rgba(42,19,11,.75); font-weight: 600; }
+  .s3 .hero .pbtn { background: #1E1E1E; color: #FFF6E0; border-radius: 999px; }
+  .s3 .card, .s3 .row { background: #fff; border: 2.5px solid #1E1E1E; border-radius: 18px; box-shadow: 4px 4px 0 rgba(30,30,30,.9); }
+  .s3 .tile { border: 2px solid #1E1E1E; border-radius: 11px; }
+  .s3 .t1 { background: #FFD93C; } .s3 .t2 { background: #8E7CFF; } .s3 .t3 { background: #4FD1A5; } .s3 .t4 { background: #FF9FB2; }
+  .s3 .rs { color: #8A7B52; font-weight: 600; }
+  .s3 .seeall { color: #E85D2A; }
+  .s3 .tabbar { background: #fff; border-top: 2.5px solid #1E1E1E; color: #A08C5A; }
+  .s3 .tab.on { color: #1E1E1E; }
+  .s3 .tab.on .ti { background: #FFC93C; border: 2px solid #1E1E1E; border-radius: 9px; padding: 2px 6px; }
+
+  /* ---------- 4 · Dark Luxe Night ---------- */
+  .s4 { background: #0D0A12; color: #F5EFFA; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s4 .ava { background: linear-gradient(135deg, #FF5C8A, #E8B26A); color: #1A0B14; }
+  .s4 .dateline { color: #9A8FB0; }
+  .s4 .hero { background: linear-gradient(125deg, #2A1230, #571F3D 60%, #7A2749); border: 1px solid #4A2B52; border-radius: 22px; box-shadow: 0 14px 34px rgba(255,92,138,.20); }
+  .s4 .hero .pdesc { color: #D9BFD2; }
+  .s4 .hero .pbtn { background: #FF5C8A; color: #fff; border-radius: 999px; }
+  .s4 .card, .s4 .row { background: #1B1426; border: 1px solid #2E2342; border-radius: 18px; }
+  .s4 .tile { background: #2A1E3E; border-radius: 11px; }
+  .s4 .rs { color: #9A8FB0; }
+  .s4 .seeall { color: #E8B26A; }
+  .s4 .tabbar { background: #150F1F; border: 1px solid #2E2342; border-radius: 999px; margin: 0 2px 12px; color: #8B7FA3; }
+  .s4 .tab.on { color: #FF5C8A; }
+
+  /* ---------- 5 · Editorial Serif ---------- */
+  .s5 { background: #F5F0E6; color: #141310; font-family: Georgia, "Times New Roman", serif; }
+  .s5 .topbar { font-family: -apple-system, sans-serif; letter-spacing: .14em; font-size: 11px; text-transform: uppercase; }
+  .s5 .ava { background: #141310; color: #F5F0E6; font-family: Georgia, serif; }
+  .s5 .greet { font-size: 25px; font-weight: 400; letter-spacing: 0; }
+  .s5 .dateline { color: #8A8378; font-style: italic; }
+  .s5 .hero { background: transparent; border-top: 2.5px solid #141310; border-bottom: 1px solid #141310; border-radius: 0; padding: 13px 2px 15px; margin-top: 11px; }
+  .s5 .hero .pname { font-size: 20px; font-weight: 400; }
+  .s5 .hero .pdesc { color: #5C574C; }
+  .s5 .hero .pbtn { background: #C8451B; color: #fff; border-radius: 3px; font-family: -apple-system, sans-serif; letter-spacing: .06em; }
+  .s5 .sec-title { font-family: -apple-system, sans-serif; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; }
+  .s5 .card, .s5 .row { background: transparent; border: 0; border-top: 1px solid #CFC7B4; border-radius: 0; padding-left: 2px; padding-right: 2px; }
+  .s5 .tile { background: transparent; font-size: 17px; }
+  .s5 .rs { color: #8A8378; }
+  .s5 .seeall { color: #C8451B; }
+  .s5 .tabbar { border-top: 2.5px solid #141310; color: #8A8378; font-family: -apple-system, sans-serif; }
+  .s5 .tab.on { color: #141310; box-shadow: inset 0 2.5px 0 #C8451B; }
+
+  /* ---------- 6 · Calm Earth ---------- */
+  .s6 { background: #ECEFE3; color: #22301F; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .s6 .ava { background: #2E5339; color: #F2F4E9; }
+  .s6 .dateline { color: #7A8471; }
+  .s6 .hero { background: linear-gradient(130deg, #B9CBA6, #8FAE94); border-radius: 26px; color: #1E3325; box-shadow: 0 12px 26px rgba(46,83,57,.20); }
+  .s6 .hero .pdesc { color: rgba(30,51,37,.78); }
+  .s6 .hero .pbtn { background: #22301F; color: #F2F4E9; border-radius: 999px; }
+  .s6 .card, .s6 .row { background: #F7F8F1; border-radius: 20px; box-shadow: 0 6px 18px rgba(46,83,57,.08); }
+  .s6 .tile { background: #E3EAD3; border-radius: 13px; }
+  .s6 .rs { color: #7A8471; }
+  .s6 .seeall { color: #C05F2E; }
+  .s6 .tabbar { background: #F7F8F1; border-radius: 999px; margin: 0 2px 12px; color: #93A189; box-shadow: 0 10px 24px rgba(46,83,57,.14); }
+  .s6 .tab.on { color: #2E5339; }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>US &amp; Always — 6 design directions</h1>
+    <p>Ek hi Home screen, 6 alag design bhashaon me. Sab me wahi asal cheezein hain — Shaique wala card, upar Bucket List, Today ki lines aur neeche ke tabs.<br>Jiska number pasand aaye, bas wahi number bata dijiye — usi style me poora app banega.</p>
+  </div>
+  <div class="grid" id="grid"></div>
+
+<script>
+  const TABS = [['⌂','Home',1],['💬','Chat',0],['♪','Together',0],['✿','Memories',0],['⚙','Settings',0]];
+  function phone(cls, tiles) {
+    const rows = [
+      ['✨','Next: kal ko sath mai ek movie dekhe','2 dreams · 0 done','bucket'],
+      ['🌸','Daily check-in','You: Not yet · Shaique: Good',''],
+      ['💗','Tap to Feel','Shaique sent the last tap · today at 10:04 PM',''],
+      ['🔋','Shaique’s battery','Battery 64%','']
+    ];
+    const rowsHtml = rows.map((r,i) =>
+      '<div class="row"><span class="tile ' + (tiles[i]||'') + '">' + r[0] + '</span><span class="rt"><span class="rn">' + r[1] + '</span><br><span class="rs">' + r[2] + '</span></span><span class="chev">›</span></div>'
+    ).join('');
+    const tabs = TABS.map(t => '<span class="tab' + (t[2]?' on':'') + '"><span class="ti">' + t[0] + '</span>' + t[1] + '</span>').join('');
+    return '<div class="phone"><div class="scr ' + cls + '">' +
+      '<div class="topbar"><span>🛡 US &amp; Always</span><span class="ava">S</span></div>' +
+      '<div class="greet">Evening, click.</div><div class="dateline">Wednesday, 18 November 2026</div>' +
+      '<div class="hero"><div class="pname">Shaique</div><div class="pdesc">Day 4 together — counting the days with you.</div><span class="pbtn">Say hello</span></div>' +
+      '<div class="sec-title"><span>Our bucket list</span><span class="seeall">See all</span></div>' +
+      rowsHtml +
+      '<div class="grow"></div>' +
+      '<div class="tabbar">' + tabs + '</div>' +
+      '</div></div>';
+  }
+  const OPTIONS = [
+    ['s1', [], '1 · Fintech Clean', 'Safed, saaf, bilkul aaj ke banking apps jaisa (Revolut wali feel). Koi shor nahi — bas saaf cards aur tez type. Sabse zyada “proper app” wali pehchan.'],
+    ['s2', ['','','',''], '2 · iOS Glass', 'iPhone ke widgets jaisa — halki dhundli (frosted) safed paraten, peeche naram rang. Premium aur thanda-thanda feel.'],
+    ['s3', ['t1','t2','t3','t4'], '3 · Playful Pop', 'Duolingo jaisa mazedaar — mote kinare, sakht saaye, chamkeele rang. Har tap par khilona-jaisa josh; app ekdum zinda lagta hai.'],
+    ['s4', ['','','',''], '4 · Dark Luxe Night', 'Gehra kala background, gulaabi-sunehra chamak. Raat ko phone dekhne par sabse khoobsurat; couple-app wali private, mehfil-jaisi vibe.'],
+    ['s5', ['','','',''], '5 · Editorial Serif', 'Akhbaar/magazine jaisa — badi serif type, patli lakeerein, koi dabbe nahi. Sabse alag aur kalaatmak; lekin sabse kam “app” jaisa.'],
+    ['s6', ['','','',''], '6 · Calm Earth', 'Halka hara-maati rang, gehara sabz aur mitti-narangi. Aankhon ko sabse aaram; prakriti-jaisa shaant aur garam feel.']
+  ];
+  document.getElementById('grid').innerHTML = OPTIONS.map(o =>
+    '<div class="option"><div class="opt-head"><span class="opt-num">' + o[2][0] + '</span><span class="opt-name">' + o[2].slice(4) + '</span></div>' +
+    '<p class="opt-feel">' + o[3] + '</p>' + phone(o[0], o[1]) + '</div>'
+  ).join('');
+</script>
+</body>
+</html>
