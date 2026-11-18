@@ -616,3 +616,19 @@ iframe.map { width: 100%; height: 240px; border: 1px solid var(--border); border
    dips, even where :active alone is too quick to see. ---- */
 button, .hub-row, .list-row, .switch-row { transition: transform .15s ease, filter .15s ease, background-color .15s ease; }
 .pressed { transform: scale(.93) !important; filter: brightness(.92) !important; }
+
+/* Home bucket list (full list + add/edit/done/delete right on Home,
+   build 2026-11-18.18) — shared by the two Home-v2 themes. */
+html[data-theme="cream"] .hb-form, html[data-theme="bento"] .hb-form {
+  display: flex; gap: 10px; align-items: stretch;
+}
+html[data-theme="cream"] .hb-form input, html[data-theme="bento"] .hb-form input { flex: 1; min-width: 0; }
+html[data-theme="cream"] .hb-add, html[data-theme="bento"] .hb-add { width: auto; padding: 0 22px; flex: none; }
+html[data-theme="cream"] .hb-row, html[data-theme="bento"] .hb-row { cursor: default; }
+html[data-theme="cream"] .hb-row .cream-marker, html[data-theme="bento"] .hb-row .cream-marker {
+  cursor: pointer; font-family: inherit; flex: none;
+}
+html[data-theme="cream"] .hb-act, html[data-theme="bento"] .hb-act {
+  background: none; border: 0; font-size: 16px; line-height: 1; padding: 10px 6px;
+  cursor: pointer; color: var(--muted); flex: none;
+}
