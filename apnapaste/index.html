@@ -10,126 +10,149 @@
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{
-  --bg:#ffffff;
-  --ink:#111111;
-  --body:#3f3f3f;
-  --muted:#8a8a8a;
-  --faint:#b5b5b5;
-  --line:#e9e9e9;
-  --line-strong:#d9d9d9;
-  --accent:#111111;
-  --ok:#1a7f37;
-  --bad:#cf222e;
-  --danger:#cf222e;
+  --bg:#f4f1ea;
+  --panel:#fbfaf6;
+  --ink:#111110;
+  --body:#3d3b34;
+  --muted:#75705f;
+  --faint:#a49e8c;
+  --line:rgba(17,17,16,.16);
+  --line-strong:rgba(17,17,16,.38);
+  --lime:#bff747;
+  --lime-deep:#5c7a12;
+  --black:#0c0c0b;
+  --ok:#4d7c0f;
+  --bad:#c02d20;
+  --danger:#c02d20;
   --amber:#7a5a12;
   --amber-bg:#fdf6e0;
-  --amber-line:#eadfae;
-  --radius:8px;
-  --font-ui:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --amber-line:#e3d194;
+  --radius:4px;
+  --font-ui:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
-::selection{background:#111;color:#fff}
+::selection{background:var(--lime);color:var(--ink)}
 body{margin:0;font-family:var(--font-ui);color:var(--body);background:var(--bg);min-height:100vh;-webkit-font-smoothing:antialiased;font-size:15px}
-.wrap{max-width:620px;margin:0 auto;padding:36px 20px 64px}
+.wrap{max-width:880px;margin:0 auto;padding:26px 22px 56px}
 
 /* ---------- header ---------- */
-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:18px;border-bottom:1px solid var(--line)}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px}
 .mark{display:none}
-.wordmark{font-size:15px;font-weight:600;color:var(--ink);line-height:1.3;letter-spacing:-.01em}
-.wordmark small{display:block;font-size:12.5px;font-weight:400;color:var(--muted);letter-spacing:0;text-transform:none;margin-top:1px}
-.pill{display:inline-flex;align-items:center;padding:2px 0}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;margin-right:7px;vertical-align:middle;flex:0 0 auto}
-.dot.on{background:var(--ok)}
-.status{font-size:13px;color:var(--muted);font-weight:400}
+.wordmark{font-size:15px;font-weight:800;color:var(--ink);line-height:1.2;letter-spacing:.06em;text-transform:uppercase}
+.wordmark small{display:block;font-size:10.5px;font-weight:500;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;margin-top:2px;font-family:var(--font-mono)}
+.pill{display:inline-flex;align-items:center;border:1px solid var(--line-strong);border-radius:3px;padding:7px 11px;background:transparent}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;margin-right:8px;vertical-align:middle;flex:0 0 auto}
+.dot.on{background:var(--lime-deep);box-shadow:0 0 0 3px rgba(191,247,71,.45)}
+.status{font-size:11px;color:var(--body);font-weight:600;font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase}
 
-/* ---------- intro ---------- */
-.intro{margin:26px 0 2px}
-.eyebrow{display:none}
-.intro h1{display:none}
-.intro .tagline{font-size:15px;line-height:1.6;color:var(--body);margin:0;max-width:52ch}
+/* ---------- hero ---------- */
+.intro{margin:44px 0 10px}
+.eyebrow{display:block;font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 18px}
+.intro h1{display:block;font-size:clamp(40px,6.4vw,58px);line-height:1.02;letter-spacing:-.03em;font-weight:800;color:var(--ink);margin:0;max-width:640px}
+.intro h1 .hl{background-image:linear-gradient(to top,var(--lime) 34%,transparent 34%);padding:0 2px}
+.intro .tagline{font-size:15.5px;line-height:1.65;color:var(--body);margin:20px 0 0;max-width:520px}
 .facts{display:none}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);margin-top:34px}
+.stat{padding:14px 16px 4px 0}
+.stat+.stat{border-left:1px solid var(--line);padding-left:16px}
+.stat b{display:block;font-size:21px;font-weight:800;color:var(--ink);letter-spacing:-.02em}
+.stat span{display:block;font-size:11px;color:var(--muted);margin-top:3px;font-family:var(--font-mono);letter-spacing:.06em;text-transform:uppercase}
 
-/* ---------- sections (no cards, hairline rules) ---------- */
-section{margin-top:6px}
-.card{background:#fff;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:26px 0;margin:0;box-shadow:none}
-.card:last-child{border-bottom:0}
-h2{font-size:15px;font-weight:600;color:var(--ink);margin:0 0 6px;line-height:1.35;letter-spacing:-.01em}
+/* ---------- sections ---------- */
+section{margin-top:26px}
+.sec-label{font-family:var(--font-mono);font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--lime-deep);margin:0 0 12px}
+.card{background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;padding:26px 0;margin:0;box-shadow:none}
+h2{font-size:19px;font-weight:750;color:var(--ink);margin:0 0 7px;line-height:1.25;letter-spacing:-.02em}
 p{color:var(--muted);line-height:1.65;margin:5px 0;font-size:14px}
 .cols{display:block}
-.create-card .btn{margin-top:4px}
+.cols .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-bottom:14px}
 .security-card h2::before{content:none}
+.send-card,.shared-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-bottom:16px}
 
 /* ---------- forms ---------- */
-label{font-size:13px;font-weight:500;display:block;margin:14px 0 7px;color:var(--ink);letter-spacing:0;text-transform:none}
-input,textarea,select{width:100%;padding:11px 12px;border:1px solid var(--line-strong);border-radius:var(--radius);font:inherit;font-size:16px;background:#fff;color:var(--ink);transition:border-color .15s}
+label{font-size:11px;font-weight:600;font-family:var(--font-mono);letter-spacing:.1em;text-transform:uppercase;display:block;margin:15px 0 8px;color:var(--ink)}
+input,textarea,select{width:100%;padding:12px 13px;border:1px solid var(--line-strong);border-radius:3px;font:inherit;font-size:16px;background:var(--panel);color:var(--ink);transition:border-color .15s}
 input::placeholder,textarea::placeholder{color:var(--faint)}
-input:hover,textarea:hover{border-color:#c4c4c4}
+input:hover,textarea:hover{border-color:rgba(17,17,16,.55)}
 input:focus,textarea:focus{outline:none;border-color:var(--ink)}
-textarea{min-height:104px;resize:vertical;line-height:1.6}
-#codeInput{font-family:var(--font-mono);font-size:21px;font-weight:600;letter-spacing:.32em;text-align:center;padding:13px 10px}
+textarea{min-height:106px;resize:vertical;line-height:1.6}
+#codeInput{font-family:var(--font-mono);font-size:21px;font-weight:600;letter-spacing:.32em;text-align:center;padding:14px 10px}
 #joinError{color:var(--bad);font-size:13.5px;min-height:20px;margin-top:9px}
-button{font:inherit;font-weight:500;font-size:14px;border-radius:var(--radius);border:1px solid var(--line-strong);background:#fff;color:var(--ink);padding:9px 15px;cursor:pointer;transition:border-color .15s,background .15s}
-button:hover{border-color:#a8a8a8;background:#fafafa}
+button{font:inherit;font-weight:600;font-size:12px;font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase;border-radius:3px;border:1px solid var(--line-strong);background:transparent;color:var(--ink);padding:10px 15px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;box-shadow:none}
+button:hover{border-color:var(--ink);background:rgba(17,17,16,.045)}
 button:active{transform:none}
 button:focus-visible,input:focus-visible,textarea:focus-visible,.drop:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}
-.btn{background:var(--ink);color:#fff;border-color:var(--ink);width:100%;padding:12px 18px;font-size:15px;font-weight:600;box-shadow:none}
-.btn:hover{background:#2b2b2b;border-color:#2b2b2b;color:#fff}
-button.small,.small{padding:7px 12px;font-size:13px;border-radius:var(--radius)}
-button.danger{color:var(--danger);border-color:#efc4c7;background:#fff}
-button.danger:hover{background:#fff5f5;border-color:var(--danger)}
+.btn{background:var(--ink);color:#f7f4ec;border-color:var(--ink);width:100%;padding:14px 18px;font-size:12.5px;font-weight:600}
+.btn:hover{background:#2a2a28;border-color:#2a2a28;color:#fff}
+button.small,.small{padding:8px 12px;font-size:11px;border-radius:3px}
+button.danger{color:var(--danger);border-color:rgba(192,45,32,.45);background:transparent}
+button.danger:hover{background:rgba(192,45,32,.06);border-color:var(--danger)}
 button:disabled{opacity:.45;cursor:not-allowed}
 .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .row>*{flex:1}
 .row .fixed{flex:0 0 auto}
 
 /* ---------- room code / QR ---------- */
-.code-panel{margin:14px 0 6px;text-align:left;background:none;border:0;border-radius:0;padding:0;box-shadow:none}
-.code{font-family:var(--font-mono);font-weight:600;font-size:clamp(40px,10vw,52px);letter-spacing:.14em;text-align:left;padding:0;line-height:1.1;color:var(--ink)}
-.code-sub{text-align:left;font-size:12.5px;color:var(--muted);margin:6px 0 14px;font-weight:400;letter-spacing:0;text-transform:none}
+.code-panel{margin:18px 0 16px;text-align:left;background:var(--black);border:0;border-radius:var(--radius);padding:22px 22px 18px;box-shadow:none;max-width:430px}
+.code{font-family:var(--font-mono);font-weight:600;font-size:clamp(38px,9vw,50px);letter-spacing:.12em;text-align:left;padding:0;line-height:1.1;color:#f7f4ec}
+.code-sub{text-align:left;font-size:10.5px;color:rgba(247,244,236,.55);margin:8px 0 0;font-weight:500;font-family:var(--font-mono);letter-spacing:.16em;text-transform:uppercase}
 .qr{text-align:center;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:8px;margin:0;box-shadow:none}
-.qr img{width:148px;height:148px;display:block;border-radius:4px}
-.qr figcaption{font-size:11.5px;color:var(--muted);padding-top:7px;font-weight:400;letter-spacing:0}
-.linkbox{word-break:break-all;background:#fafafa;border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--body)}
-#deviceCount{font-size:12.5px}
+.qr img{width:148px;height:148px;display:block;border-radius:2px}
+.qr figcaption{font-size:10.5px;color:var(--muted);padding-top:7px;font-weight:500;font-family:var(--font-mono);letter-spacing:.1em;text-transform:uppercase}
+.linkbox{word-break:break-all;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:11px 13px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--body)}
+#deviceCount{font-size:12px;font-family:var(--font-mono)}
 
 /* ---------- messages ---------- */
-.msg{border:0;border-bottom:1px solid var(--line);border-radius:0;padding:16px 0;margin:0;background:#fff;box-shadow:none;animation:none}
-.msg:last-child{border-bottom:0}
+.msg{border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;margin:0 0 10px;background:#fff;box-shadow:none;animation:none}
 .msg .meta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
-.msg .who{color:var(--ink);font-weight:600}
-.msg .when{font-size:11.5px;color:var(--faint)}
+.msg .who{color:var(--ink);font-weight:700}
+.msg .when{font-size:11px;color:var(--faint);font-family:var(--font-mono)}
 .msg .body{white-space:pre-wrap;word-break:break-word;margin:10px 0 12px;line-height:1.65;font-size:15px;color:var(--ink)}
-.badge{font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:none;border:0;border-radius:0;padding:0;margin-right:8px}
-.empty{border:1px dashed var(--line-strong);border-radius:var(--radius);padding:24px 16px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;background:#fff}
+.badge{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--lime-deep);background:rgba(191,247,71,.28);border:0;border-radius:2px;padding:3px 7px;margin-right:8px;font-family:var(--font-mono)}
+.empty{border:1px dashed var(--line-strong);border-radius:var(--radius);padding:24px 16px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;background:transparent}
 .secretbox{background:var(--amber-bg);border:1px solid var(--amber-line);border-radius:var(--radius);padding:11px 13px;color:var(--amber);font-size:13.5px;line-height:1.6;margin-top:11px}
-.drop{border:1px dashed var(--line-strong);border-radius:var(--radius);padding:22px 16px;text-align:center;color:var(--muted);cursor:pointer;font-size:14px;line-height:1.6;background:#fff;transition:border-color .15s,color .15s;font-weight:400}
-.drop:hover{border-color:#a8a8a8;color:var(--ink)}
-.drop.over{border-color:var(--ink);color:var(--ink);background:#fafafa}
+.drop{border:1px dashed var(--line-strong);border-radius:var(--radius);padding:22px 16px;text-align:center;color:var(--muted);cursor:pointer;font-size:13.5px;line-height:1.6;background:transparent;transition:border-color .15s,color .15s;font-weight:500}
+.drop:hover{border-color:var(--ink);color:var(--ink)}
+.drop.over{border-color:var(--ink);color:var(--ink);background:rgba(191,247,71,.18)}
 #fileStatus{font-size:13.5px;color:var(--body);min-height:20px}
-.count{font-size:12px;color:var(--faint);text-align:right;margin-top:6px}
-.chip{display:inline-block;border:1px solid var(--line-strong);border-radius:999px;padding:6px 12px;font-size:13px;margin:3px 6px 3px 0;background:#fff;color:var(--body);font-weight:400;box-shadow:none;transition:border-color .15s}
-button.chip{cursor:pointer}
-.chip:hover{border-color:#a8a8a8;color:var(--ink)}
+.count{font-size:11.5px;color:var(--faint);text-align:right;margin-top:6px;font-family:var(--font-mono)}
+.chip{display:inline-block;border:1px solid var(--line-strong);border-radius:999px;padding:6px 12px;font-size:12.5px;margin:3px 6px 3px 0;background:transparent;color:var(--body);font-weight:500;box-shadow:none;transition:border-color .15s;font-family:var(--font-mono)}
+button.chip{cursor:pointer;text-transform:none;letter-spacing:0}
+.chip:hover{border-color:var(--ink);color:var(--ink)}
 .hidden{display:none!important}
-.toggle{display:flex;border:1px solid var(--line);border-radius:var(--radius);background:#f7f7f7;padding:2px;gap:2px;box-shadow:none}
-.toggle button{flex:1;border:0;border-radius:6px;background:transparent;color:var(--muted);padding:8px 10px;box-shadow:none}
+.toggle{display:flex;border:1px solid var(--line);border-radius:3px;background:rgba(17,17,16,.045);padding:2px;gap:2px;box-shadow:none}
+.toggle button{flex:1;border:0;border-radius:2px;background:transparent;color:var(--muted);padding:9px 10px;box-shadow:none}
 .toggle button:hover{background:transparent;color:var(--ink)}
-.toggle button.sel{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.toggle button.sel{background:var(--ink);color:#f7f4ec;font-weight:600;box-shadow:none}
 a{color:var(--ink)}
-footer{font-size:12.5px;color:var(--muted);text-align:left;line-height:1.8;padding:22px 0 0;border-top:1px solid var(--line);margin-top:4px}
-footer strong{color:var(--ink);font-size:12.5px;font-weight:600}
 
+/* ---------- footer (black block, like the reference) ---------- */
+footer{background:var(--black);color:rgba(247,244,236,.72);font-size:12.5px;text-align:left;line-height:1.85;padding:26px;border-radius:var(--radius);margin-top:34px;border:0}
+footer strong{color:var(--lime);font-size:13px;font-weight:700;letter-spacing:.04em}
+
+/* ---------- wide layout ---------- */
+@media (min-width:680px){
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:0;align-items:stretch}
+  .cols .card{margin-bottom:0;height:100%}
+  .cols .card+.card{border-left:0}
+}
 /* ---------- small screens ---------- */
 @media (max-width:560px){
-  .wrap{padding:26px 16px 48px}
+  .wrap{padding:20px 15px 44px}
+  .intro{margin:32px 0 8px}
+  .intro h1{font-size:37px}
   .card{padding:22px 0}
+  .cols .card,.send-card,.shared-card{padding:19px 16px}
   .qr img{width:132px;height:132px}
   .msg .row .fixed,.msg .row button{flex:1 1 auto}
+  .stats{grid-template-columns:repeat(3,1fr)}
+  .stat b{font-size:17px}
+  footer{padding:21px 17px}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
@@ -146,11 +169,19 @@ footer strong{color:var(--ink);font-size:12.5px;font-weight:600}
 </header>
 
 <div class="intro">
-  <p class="tagline">Share text, passwords and files between your phone and laptop. End to end encrypted, no account, nothing stored.</p>
+  <p class="eyebrow">[ Device to device · No account ]</p>
+  <h1>Share <span class="hl">anything</span> between your devices.</h1>
+  <p class="tagline">Text, passwords and files move from your phone to your laptop in seconds. Encrypted on the device, hidden on screen, and gone when you clear the room.</p>
+  <div class="stats">
+    <div class="stat"><b>AES-256</b><span>Encryption</span></div>
+    <div class="stat"><b>0 stored</b><span>On any server</span></div>
+    <div class="stat"><b>6 digits</b><span>Code is the key</span></div>
+  </div>
 </div>
 
 <section id="homeView">
   <div class="card device-card">
+    <p class="sec-label">01 · Setup</p>
     <h2>Your device</h2>
     <p>Give this device a name so you can recognise it in the room.</p>
     <label for="labelInput">Device name</label>
@@ -158,12 +189,14 @@ footer strong{color:var(--ink);font-size:12.5px;font-weight:600}
   </div>
   <div class="cols">
     <div class="card create-card">
+      <p class="sec-label">02 · Start</p>
       <h2>Create a room</h2>
       <p>Start a room on this device, then join it from your other device with the code.</p>
       <div style="height:8px"></div>
       <button class="btn" id="createBtn">Create room</button>
     </div>
     <div class="card join-card">
+      <p class="sec-label">03 · Join</p>
       <h2>Join a room</h2>
       <label for="codeInput" style="margin-top:2px">6 digit room code</label>
       <input id="codeInput" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="off">
@@ -178,6 +211,7 @@ footer strong{color:var(--ink);font-size:12.5px;font-weight:600}
     <p>Saved only in this browser. Tap a code to fill it in.</p>
   </div>
   <div class="card security-card">
+    <p class="sec-label">04 · Security</p>
     <h2>The code is the key</h2>
     <p>Everything is encrypted in your browser before it leaves the device. A public relay passes the ciphertext between your devices and cannot read it. Nothing is stored on any server of ours, and you can clear the room at any time.</p>
     <p>The 6 digit code is also the encryption key. Anyone who has the code can join the room and read what is shared, so send the code only to yourself or someone you trust, and clear the room when you are done.</p>
@@ -186,6 +220,7 @@ footer strong{color:var(--ink);font-size:12.5px;font-weight:600}
 
 <section id="roomView" class="hidden">
   <div class="card room-card">
+    <p class="sec-label">Your room</p>
     <h2>Your room</h2>
     <p>Open the join link, scan the QR code, or type this code on your other device.</p>
     <div class="code-panel">
@@ -207,6 +242,7 @@ footer strong{color:var(--ink);font-size:12.5px;font-weight:600}
   </div>
 
   <div class="card send-card">
+    <p class="sec-label">Send</p>
     <h2>Send</h2>
     <div class="toggle" role="group" aria-label="Message type">
       <button id="modeText" class="sel" type="button">Text or link</button>
