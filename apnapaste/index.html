@@ -234,19 +234,20 @@ footer strong{color:var(--ink);font-size:13px}
 <footer><strong>ApnaPaste</strong> is free for everyone. No account, no sign up, nothing to install.<br>End to end encrypted with AES-GCM. Key derived from the room code with PBKDF2, 150000 iterations.<br>A public relay passes ciphertext between your devices. It cannot read what you share. Anyone with your room code can join your room, so share the code only with your own devices and people you trust.</footer>
 </div>
 
-<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 'use strict';
 const SALT = 'ApnaPaste-v1-salt';
 const ITER = 150000;
+const SUPABASE_URL = 'https://nuftteaifpafarmhqdtd.supabase.co';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51ZnR0ZWFpZnBhZmFybWhxZHRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3NDg0MzMsImV4cCI6MjExMDMyNDQzM30.0oiugE7cvDFJdnyNPMcy-T6K2Y4yui-u2E8jFtsyP7A';
+const sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 const $ = id => document.getElementById(id);
 const deviceId = (() => { let v = localStorage.getItem('apnapaste-device'); if (!v) { v = crypto.randomUUID(); localStorage.setItem('apnapaste-device', v); } return v; })();
 let roomCode = null, cryptoKey = null, mode = 'text', seen = new Set();
-let client = null, base = null, presenceTimer = null;
-const presenceMap = new Map();
-const knownMsgIds = new Set();
+let channel = null, base = null, presenceTimer = null, channelReady = false;
+let history = [];
 const fileState = new Map();
-const BROKERS = ['wss://mqtt.eclipseprojects.io/mqtt', 'wss://test.mosquitto.org:8081/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 
 function defaultLabel() { return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'Phone' : 'Laptop'; }
 $('labelInput').value = localStorage.getItem('apnapaste-label') || defaultLabel();
@@ -285,82 +286,64 @@ async function enterRoom(code) {
   $('joinLink').textContent = link;
   $('qrImg').src = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(link);
   saveRecent(code); setStatus(false, 'Connecting');
-  base = await topicBaseFor(code);
-  connectMqtt(0);
+  base = await channelNameFor(code);
+  connectChannel();
 }
 let lastOkAt = 0;
 function markOk() { lastOkAt = Date.now(); setStatus(true, 'Connected, encrypted'); }
 function markBad() { if (Date.now() - lastOkAt > 8000) setStatus(false, 'Reconnecting, retrying automatically'); }
-async function topicBaseFor(code) {
+async function channelNameFor(code) {
   const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code + ':' + SALT));
   const hex = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
-  return 'apnapaste/v2/' + hex.slice(0, 40);
+  return 'apnapaste-' + hex.slice(0, 40);
 }
-function presenceTopic() { return base + '/presence/' + deviceId; }
-function publishPresence() {
-  if (!client || !client.connected || !base) return;
-  client.publish(presenceTopic(), JSON.stringify({ label: myLabel(), at: Date.now() }), { retain: true, qos: 1 });
+function rememberMsg(msg) {
+  if (!msg || !msg.id || msg.kind === 'file') return;
+  if (history.some(m => m.id === msg.id)) return;
+  history.push({ id: msg.id, kind: msg.kind, iv: msg.iv, data: msg.data, label: msg.label, at: msg.at });
+  if (history.length > 50) history.splice(0, history.length - 50);
 }
-function connectMqtt(idx) {
-  if (client) { try { client.end(true); } catch (e) {} client = null; }
-  const url = BROKERS[idx];
-  let opened = false;
-  const c = mqtt.connect(url, {
-    clientId: 'apnapaste-' + deviceId.slice(0, 8) + '-' + Math.random().toString(36).slice(2, 8),
-    reconnectPeriod: 3000,
-    connectTimeout: 8000,
-    will: { topic: presenceTopic(), payload: '', retain: true, qos: 1 }
-  });
-  client = c;
-  const fallbackTimer = setTimeout(() => {
-    if (!opened && idx + 1 < BROKERS.length) { try { c.end(true); } catch (e) {} if (client === c) connectMqtt(idx + 1); }
-  }, 9000);
-  c.on('connect', () => {
-    opened = true; clearTimeout(fallbackTimer); markOk();
-    c.subscribe([base + '/msg/+', base + '/file/+/+', base + '/presence/+', base + '/control'], { qos: 1 });
-    publishPresence();
-    if (presenceTimer) clearInterval(presenceTimer);
-    presenceTimer = setInterval(() => { publishPresence(); prunePresence(); }, 20000);
-  });
-  c.on('reconnect', () => setStatus(false, 'Reconnecting, retrying automatically'));
-  c.on('offline', () => setStatus(false, 'Reconnecting, retrying automatically'));
-  c.on('close', () => { if (roomCode) markBad(); });
-  c.on('error', () => {});
-  c.on('message', onMqttMessage);
-}
-function prunePresence() {
-  const now = Date.now();
+function renderPresence() {
+  if (!channel) return;
+  const state = channel.presenceState();
   const list = [];
-  presenceMap.forEach((v, id) => { if (v && (now - (v.at || 0) < 50000 || v.retained)) list.push({ deviceId: id, label: v.label || 'Device' }); });
+  Object.keys(state).forEach(k => { const arr = state[k]; if (arr && arr.length) list.push({ deviceId: k, label: arr[0].label || 'Device' }); });
   renderDevices(list);
 }
-function onMqttMessage(topic, payload, packet) {
-  const text = payload ? payload.toString() : '';
-  const parts = topic.split('/');
-  const kind = parts[parts.length - 2];
-  const tail = parts[parts.length - 1];
-  if (kind === 'presence') {
-    if (!text) { presenceMap.delete(tail); }
-    else { try { const j = JSON.parse(text); const prev = presenceMap.get(tail); presenceMap.set(tail, { label: j.label, at: j.at || 0, retained: !!((prev && prev.retained) || (packet && packet.retain)) }); } catch (e) {} }
-    prunePresence();
-    return;
-  }
-  if (tail === 'control' || kind === 'v2' || topic === base + '/control') {
-    if (!text) return;
-    try { const j = JSON.parse(text); if (j.type === 'cleared') wipeLocalRoom(); } catch (e) {}
-    return;
-  }
-  if (kind === 'msg') {
-    if (!text) return;
-    try { const msg = JSON.parse(text); knownMsgIds.add(msg.id); addMessage(msg); markOk(); } catch (e) {}
-    return;
-  }
-  if (parts[parts.length - 3] === 'file') {
-    const fileId = tail === undefined ? null : parts[parts.length - 2];
-    if (!text) return;
-    try { const j = JSON.parse(text); onFileChunk(j.fileId || fileId, j); } catch (e) {}
-    return;
-  }
+function connectChannel() {
+  if (channel) { const old = channel; channel = null; channelReady = false; try { sb.removeChannel(old); } catch (e) {} }
+  const ch = sb.channel(base, { config: { broadcast: { self: false }, presence: { key: deviceId } } });
+  channel = ch;
+  ch.on('broadcast', { event: 'msg' }, ({ payload }) => {
+    if (!payload || !payload.id) return;
+    addMessage(payload); rememberMsg(payload); markOk();
+  });
+  ch.on('broadcast', { event: 'file-chunk' }, ({ payload }) => { if (payload) onFileChunk(payload.fileId, payload); });
+  ch.on('broadcast', { event: 'sync-request' }, () => {
+    if (history.length && channel === ch) { try { ch.send({ type: 'broadcast', event: 'sync-give', payload: { messages: history.slice() } }); } catch (e) {} }
+  });
+  ch.on('broadcast', { event: 'sync-give' }, ({ payload }) => {
+    if (payload && Array.isArray(payload.messages)) payload.messages.forEach(m => { addMessage(m); rememberMsg(m); });
+  });
+  ch.on('broadcast', { event: 'control' }, ({ payload }) => { if (payload && payload.type === 'cleared') wipeLocalRoom(); });
+  ch.on('presence', { event: 'sync' }, () => renderPresence());
+  ch.on('presence', { event: 'join' }, () => renderPresence());
+  ch.on('presence', { event: 'leave' }, () => renderPresence());
+  ch.subscribe(async (status) => {
+    if (channel !== ch) return;
+    if (status === 'SUBSCRIBED') {
+      channelReady = true; markOk();
+      try { await ch.track({ label: myLabel(), at: Date.now() }); } catch (e) {}
+      try { ch.send({ type: 'broadcast', event: 'sync-request', payload: {} }); } catch (e) {}
+      if (presenceTimer) clearInterval(presenceTimer);
+      presenceTimer = setInterval(() => { if (channel === ch) { try { ch.track({ label: myLabel(), at: Date.now() }); } catch (e) {} } }, 20000);
+    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      channelReady = false; markBad(); setStatus(false, 'Reconnecting, retrying automatically');
+    } else if (status === 'CLOSED') {
+      channelReady = false; markBad(); setStatus(false, 'Reconnecting, retrying automatically');
+      if (roomCode) setTimeout(() => { if (roomCode && channel === ch) connectChannel(); }, 3000);
+    }
+  });
 }
 function getFileEntry(id) {
   let e = fileState.get(id);
@@ -375,7 +358,7 @@ function onFileChunk(fileId, j) {
   if (e.uiUpdate) e.uiUpdate();
 }
 function wipeLocalRoom() {
-  seen.clear(); fileState.clear();
+  seen.clear(); fileState.clear(); history = [];
   $('messages').innerHTML = '<p>Room cleared.</p>';
 }
 function setStatus(on, text) { $('statusDot').className = 'dot' + (on ? ' on' : ''); $('statusText').textContent = text; }
@@ -466,17 +449,18 @@ $('modeSecret').onclick = () => { mode = 'secret'; $('modeSecret').classList.add
 $('textInput').addEventListener('input', () => $('charCount').textContent = $('textInput').value.length);
 $('sendBtn').onclick = async () => {
   const t = $('textInput').value; if (!t) return;
-  if (!client || !client.connected) { alert('Not connected yet. Wait for the green status, then send again.'); return; }
+  if (!channel || !channelReady) { alert('Not connected yet. Wait for the green status, then send again.'); return; }
   const enc = await encText(t);
   const msg = { id: crypto.randomUUID(), kind: mode, iv: enc.iv, data: enc.data, label: myLabel(), at: Date.now() };
-  knownMsgIds.add(msg.id);
-  client.publish(base + '/msg/' + msg.id, JSON.stringify(msg), { retain: true, qos: 1 });
+  rememberMsg(msg);
+  addMessage(msg);
+  try { await channel.send({ type: 'broadcast', event: 'msg', payload: msg }); } catch (e) {}
   $('textInput').value = ''; $('charCount').textContent = '0';
 };
 async function sendFile(file) {
   if (!file) return;
   if (file.size > 25 * 1024 * 1024) { $('fileStatus').textContent = 'File is over 25 MB. Not sent.'; return; }
-  if (!client || !client.connected) { $('fileStatus').textContent = 'Not connected yet. Wait for the green status, then send again.'; return; }
+  if (!channel || !channelReady) { $('fileStatus').textContent = 'Not connected yet. Wait for the green status, then send again.'; return; }
   $('fileStatus').textContent = 'Encrypting ' + file.name + ' ...';
   const buf = await file.arrayBuffer();
   const enc = await encBytes(buf);
@@ -485,13 +469,17 @@ async function sendFile(file) {
   const CHUNK = 120000;
   const total = Math.max(1, Math.ceil(enc.data.length / CHUNK));
   const header = { id: fileId, kind: 'file', iv: enc.iv, metaIv: meta.iv, metaData: meta.data, total, label: myLabel(), at: Date.now() };
-  knownMsgIds.add(fileId);
-  client.publish(base + '/msg/' + fileId, JSON.stringify(header), { retain: false, qos: 1 });
+  addMessage(header);
+  const entry = getFileEntry(fileId);
+  entry.total = total;
+  try { await channel.send({ type: 'broadcast', event: 'msg', payload: header }); } catch (e) {}
   for (let seq = 0; seq < total; seq++) {
     const piece = enc.data.slice(seq * CHUNK, (seq + 1) * CHUNK);
-    client.publish(base + '/file/' + fileId + '/' + seq, JSON.stringify({ fileId, seq, total, piece }), { retain: false, qos: 1 });
+    entry.pieces.set(seq, piece);
+    try { await channel.send({ type: 'broadcast', event: 'file-chunk', payload: { fileId, seq, total, piece } }); } catch (e) {}
     if (seq % 20 === 19) await new Promise(r => setTimeout(r, 30));
   }
+  if (entry.uiUpdate) entry.uiUpdate();
   $('fileStatus').textContent = 'Sent ' + file.name + ' (' + fmtSize(file.size) + '), encrypted.';
 }
 $('dropZone').onclick = () => $('fileInput').click();
@@ -504,18 +492,18 @@ $('copyCodeBtn').onclick = e => copyText(roomCode, e.target);
 $('clearClipboardBtn').onclick = async e => { try { await navigator.clipboard.writeText(''); e.target.textContent = 'Clipboard cleared'; setTimeout(() => e.target.textContent = 'Clear clipboard', 1500); } catch (err) { alert('Browser blocked clipboard clearing. Copy any other text to overwrite it.'); } };
 $('clearRoomBtn').onclick = async () => {
   if (!confirm('Clear everything in this room for everyone?')) return;
-  if (client && base) {
-    knownMsgIds.forEach(id => client.publish(base + '/msg/' + id, '', { retain: true, qos: 1 }));
-    client.publish(base + '/control', JSON.stringify({ type: 'cleared', at: Date.now() }), { retain: false, qos: 1 });
+  if (channel) {
+    try { await channel.send({ type: 'broadcast', event: 'control', payload: { type: 'cleared', at: Date.now() } }); } catch (e) {}
   }
   wipeLocalRoom();
 };
-$('leaveBtn').onclick = () => {
+$('leaveBtn').onclick = async () => {
   try {
-    if (client && base) {
-      client.publish(presenceTopic(), '', { retain: true, qos: 1 });
+    if (channel) {
+      const ch = channel; channel = null; channelReady = false;
       if (presenceTimer) clearInterval(presenceTimer);
-      client.end(true);
+      try { await ch.untrack(); } catch (e) {}
+      try { await sb.removeChannel(ch); } catch (e) {}
     }
   } catch (e) {}
   location.href = location.pathname;
