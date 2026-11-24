@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ApnaPaste</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,560;0,9..144,640;1,9..144,480;1,9..144,560&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#121009;--bg-deep:#0c0a07;--surface:#1b1712;--surface-2:#241e16;--surface-3:#2b241a;
+  --cream:#f4eddf;--cream-dim:#cdc2ab;--muted:#a3977f;--faint:#7d7260;
+  --line:rgba(244,237,223,.13);--line-strong:rgba(244,237,223,.24);
+  --accent:#ff5a26;--accent-soft:rgba(255,90,38,.12);--accent-ink:#1c0f08;
+  --gold:#e9c46a;--amber:#eec27f;--amber-bg:rgba(233,196,106,.09);--amber-line:rgba(233,196,106,.32);
+  --ok:#57d992;--bad:#ff7a5c;--danger:#ff8a70;--danger-line:rgba(255,122,92,.4);
+  --paper:#f4eddf;--paper-ink:#191410;--paper-muted:#5d5342;
+  --radius:22px;--shadow:0 24px 60px rgba(0,0,0,.42);
+  --font-ui:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-display:"Fraunces",Georgia,"Times New Roman",serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+::selection{background:var(--accent);color:#fff}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:var(--font-ui);color:var(--cream);background:
+  radial-gradient(1100px 520px at 85% -10%,rgba(255,90,38,.14),transparent 60%),
+  radial-gradient(800px 500px at -10% 30%,rgba(233,196,106,.07),transparent 55%),
+  linear-gradient(180deg,var(--bg) 0%,var(--bg-deep) 100%);
+  background-attachment:fixed;min-height:100vh;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+  background-image:radial-gradient(rgba(244,237,223,.055) 1px,transparent 1px);background-size:26px 26px}
+.wrap{max-width:900px;margin:0 auto;padding:26px 18px 56px;position:relative}
+
+/* ---------- top bar ---------- */
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 0 8px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:11px}
+.mark{width:38px;height:38px;border-radius:11px;background:var(--accent);color:#fff;display:grid;place-items:center;
+  font-family:var(--font-display);font-weight:640;font-size:17px;letter-spacing:.01em;box-shadow:0 8px 22px rgba(255,90,38,.35)}
+.wordmark{font-size:12px;font-weight:800;letter-spacing:.24em;text-transform:uppercase}
+.wordmark small{display:block;font-size:9.5px;font-weight:600;letter-spacing:.3em;color:var(--muted);margin-top:3px;text-transform:uppercase}
+.pill{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:8px 14px;background:rgba(27,23,18,.72);backdrop-filter:blur(6px)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--bad);display:inline-block;margin-right:8px;vertical-align:middle;flex:0 0 auto;transition:background .3s}
+.dot.on{background:var(--ok);box-shadow:0 0 0 0 rgba(87,217,146,.5);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(87,217,146,.45)}70%{box-shadow:0 0 0 9px rgba(87,217,146,0)}100%{box-shadow:0 0 0 0 rgba(87,217,146,0)}}
+.status{font-size:12.5px;color:var(--muted);font-weight:500}
+.pill .status{color:var(--cream-dim)}
+
+/* ---------- masthead ---------- */
+.masthead{padding:38px 0 30px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);margin:0 0 16px}
+.masthead h1{font-family:var(--font-display);font-weight:560;font-size:clamp(56px,13.5vw,104px);line-height:.94;letter-spacing:-.015em;margin:0}
+.masthead h1 em{font-style:italic;font-weight:480;color:var(--accent)}
+.lede{max-width:56ch;color:var(--cream-dim);font-size:16.5px;line-height:1.65;margin:20px 0 0}
+.lede strong{color:var(--cream);font-weight:600}
+.facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.fact{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--cream-dim);
+  border:1px solid var(--line);border-radius:999px;padding:7px 12px;background:rgba(244,237,223,.03)}
+
+/* ---------- panels ---------- */
+section{margin-top:26px}
+.card{background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--line);border-radius:var(--radius);
+  padding:26px 24px;margin-bottom:18px;box-shadow:var(--shadow);position:relative;animation:rise .6s cubic-bezier(.22,.8,.3,1) both}
+.card:nth-child(2){animation-delay:.06s}.card:nth-child(3){animation-delay:.12s}.card:nth-child(4){animation-delay:.18s}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.kicker{font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.26em;text-transform:uppercase;color:var(--accent);margin:0 0 14px;display:flex;align-items:center;gap:10px}
+.kicker::after{content:"";flex:1;height:1px;background:var(--line)}
+h2{font-family:var(--font-display);font-weight:560;font-size:clamp(24px,5.4vw,31px);line-height:1.08;letter-spacing:-.01em;margin:0 0 10px}
+p{color:var(--muted);line-height:1.65;margin:6px 0;font-size:15px}
+.card--paper{background:var(--paper);color:var(--paper-ink);border-color:transparent}
+.card--paper h2{color:var(--paper-ink)}
+.card--paper p{color:var(--paper-muted)}
+.card--paper .kicker{color:#c33d12}
+.card--paper .kicker::after{background:rgba(25,20,16,.16)}
+.card--paper label{color:var(--paper-ink)}
+.card--paper input{background:#fffdf7;border-color:rgba(25,20,16,.22);color:var(--paper-ink)}
+.card--paper input:focus{border-color:#c33d12;box-shadow:0 0 0 4px rgba(255,90,38,.18)}
+.card--note{background:transparent;box-shadow:none;border:0;border-left:3px solid var(--gold);border-radius:0;padding:6px 4px 6px 22px}
+.card--note h2{font-size:23px}
+.card--note .kicker{color:var(--gold)}
+.card--note .kicker::after{display:none}
+
+/* ---------- forms ---------- */
+label{font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;display:block;margin:18px 0 8px;color:var(--cream-dim)}
+input,textarea,select{width:100%;padding:14px 15px;border:1px solid var(--line-strong);border-radius:13px;font:inherit;font-size:16px;background:var(--bg-deep);color:var(--cream);transition:border-color .2s,box-shadow .2s,background .2s}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);background:#0a0806}
+textarea{min-height:110px;resize:vertical;line-height:1.55}
+#codeInput{font-family:var(--font-mono);font-size:24px;font-weight:700;letter-spacing:.42em;text-align:center;padding:16px 10px}
+#joinError{color:var(--danger);font-size:13.5px;min-height:20px;margin-top:10px}
+button{font:inherit;font-weight:600;font-size:15px;border-radius:13px;border:1px solid var(--line-strong);background:var(--surface-3);color:var(--cream);
+  padding:12px 18px;cursor:pointer;transition:transform .15s cubic-bezier(.22,.8,.3,1),background .2s,border-color .2s,color .2s,box-shadow .2s}
+button:hover{border-color:rgba(244,237,223,.45);transform:translateY(-1px)}
+button:active{transform:scale(.965)}
+button:focus-visible,input:focus-visible,textarea:focus-visible,.drop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{background:var(--accent);color:#fff;border-color:transparent;width:100%;padding:16px 18px;font-size:16px;font-weight:700;letter-spacing:.01em;box-shadow:0 14px 30px rgba(255,90,38,.28)}
+.btn:hover{background:#ff6a3d;border-color:transparent;box-shadow:0 18px 36px rgba(255,90,38,.34)}
+.btn.small{width:auto;padding:9px 14px;font-size:13px}
+button.small,.small{padding:9px 14px;font-size:13.5px;border-radius:999px}
+button.danger{color:var(--danger);border-color:var(--danger-line);background:rgba(255,122,92,.06)}
+button.danger:hover{border-color:var(--danger)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1}
+.row .fixed{flex:0 0 auto}
+
+/* ---------- room code / QR ---------- */
+.code{font-family:var(--font-display);font-weight:640;font-size:clamp(54px,15vw,88px);letter-spacing:.14em;text-align:center;
+  padding:16px 0 8px;line-height:1;color:var(--cream);font-variant-numeric:tabular-nums}
+.code-sub{text-align:center;font-family:var(--font-mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--faint);margin:0 0 18px}
+.qr{text-align:center;background:var(--paper);border-radius:18px;padding:12px;box-shadow:0 14px 34px rgba(0,0,0,.35)}
+.qr img{width:148px;height:148px;display:block;border-radius:8px}
+.qr figcaption{font-family:var(--font-mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--paper-muted);padding-top:9px}
+.linkbox{word-break:break-all;background:var(--bg-deep);border:1px solid var(--line);border-radius:13px;padding:13px 14px;
+  font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--cream-dim)}
+#deviceCount{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase}
+
+/* ---------- messages ---------- */
+.msg{border:1px solid var(--line);border-radius:17px;padding:16px 17px;margin-bottom:11px;background:linear-gradient(180deg,rgba(244,237,223,.045),rgba(244,237,223,.015));animation:rise .45s cubic-bezier(.22,.8,.3,1) both}
+.msg .meta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+.msg .who{color:var(--cream-dim);font-weight:600}
+.msg .when{font-family:var(--font-mono);font-size:11px;color:var(--faint)}
+.msg .body{white-space:pre-wrap;word-break:break-word;margin:11px 0 13px;line-height:1.6;font-size:16px;letter-spacing:.14em;color:var(--cream)}
+.badge{font-family:var(--font-mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:var(--accent);
+  border:1px solid rgba(255,90,38,.35);background:var(--accent-soft);border-radius:999px;padding:3px 9px;margin-right:8px}
+.empty{border:1.5px dashed var(--line-strong);border-radius:17px;padding:30px 18px;text-align:center;color:var(--faint);font-size:14.5px;line-height:1.6}
+.empty strong{display:block;font-family:var(--font-display);font-size:20px;font-weight:560;color:var(--cream-dim);margin-bottom:5px;letter-spacing:0}
+.secretbox{background:var(--amber-bg);border:1px solid var(--amber-line);border-radius:13px;padding:12px 14px;color:var(--amber);font-size:13.5px;line-height:1.55;margin-top:10px}
+.drop{border:1.5px dashed var(--line-strong);border-radius:17px;padding:26px 18px;text-align:center;color:var(--muted);cursor:pointer;font-size:14.5px;line-height:1.6;transition:border-color .2s,color .2s,background .2s,transform .15s}
+.drop:hover{border-color:var(--accent);color:var(--cream-dim)}
+.drop:active{transform:scale(.99)}
+.drop.over{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+#fileStatus{font-size:13.5px;color:var(--gold);min-height:20px}
+.count{font-family:var(--font-mono);font-size:11.5px;color:var(--faint);text-align:right;margin-top:7px}
+.chip{display:inline-block;border:1px solid var(--line-strong);border-radius:999px;padding:7px 13px;font-size:13px;margin:3px 5px 3px 0;background:rgba(244,237,223,.04);color:var(--cream-dim);cursor:pointer;font-weight:500;transition:transform .15s,border-color .2s,color .2s}
+button.chip{font-weight:500}
+.chip:hover{border-color:var(--accent);color:var(--cream);transform:translateY(-1px)}
+.chip:active{transform:scale(.96)}
+.hidden{display:none!important}
+.toggle{display:flex;border:1px solid var(--line-strong);border-radius:14px;overflow:hidden;background:var(--bg-deep);padding:4px;gap:4px}
+.toggle button{flex:1;border:0;border-radius:10px;background:transparent;color:var(--muted);padding:11px 10px}
+.toggle button:hover{transform:none;color:var(--cream)}
+.toggle button.sel{background:var(--cream);color:var(--paper-ink);font-weight:700}
+a{color:var(--accent)}
+footer{font-size:12.5px;color:var(--faint);text-align:center;line-height:1.8;padding:26px 8px 0;border-top:1px solid var(--line);margin-top:10px}
+footer strong{color:var(--cream-dim);font-family:var(--font-display);font-size:14px;letter-spacing:.02em}
+
+/* ---------- wide layout ---------- */
+@media (min-width:780px){
+  #homeView{display:grid;grid-template-columns:1.12fr .88fr;gap:18px;align-items:start}
+  #homeView .card{margin-bottom:0}
+  #homeView .card--note{grid-column:1/-1}
+  .masthead{padding:52px 0 38px}
+  .card{padding:30px 28px}
+}
+/* ---------- small screens ---------- */
+@media (max-width:560px){
+  .wrap{padding:20px 14px 44px}
+  .card{padding:22px 18px;border-radius:19px}
+  .masthead{padding:28px 0 24px}
+  .lede{font-size:15.5px}
+  .qr img{width:132px;height:132px}
+  .msg .row .fixed,.msg .row button{flex:1 1 auto}
+  .pill{padding:7px 11px}
+  .wordmark small{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand">
+    <div class="mark">A</div>
+    <div class="wordmark">ApnaPaste<small>Personal, encrypted</small></div>
+  </div>
+  <div class="pill"><span id="statusDot" class="dot"></span><span id="statusText" class="status">Not in a room</span></div>
+</header>
+
+<div class="masthead">
+  <p class="eyebrow">Phone to laptop, laptop to phone</p>
+  <h1>Apna<em>Paste.</em></h1>
+  <p class="lede">One private room between your own devices. Drop in a line of text, a password or a file, and pick it up on the other side. <strong>Everything stays hidden until you reveal it.</strong></p>
+  <div class="facts">
+    <span class="fact">End to end encrypted</span>
+    <span class="fact">Nothing on disk</span>
+    <span class="fact">No account</span>
+    <span class="fact">Relay sees only ciphertext</span>
+  </div>
+</div>
+
+<section id="homeView">
+  <div class="card card--paper">
+    <p class="kicker">01 · Start</p>
+    <h2>Create a room</h2>
+    <p>Send text, a password or a file from your phone to your laptop, or the other way round. Everything is encrypted in your browser before it leaves the device. A public relay passes the ciphertext between your devices and cannot read it. Nothing is stored on any server of ours, and you can clear the room at any time.</p>
+    <label for="labelInput">This device name</label>
+    <input id="labelInput" maxlength="40" autocomplete="off">
+    <div style="height:14px"></div>
+    <button class="btn" id="createBtn">Create room</button>
+  </div>
+  <div class="card">
+    <p class="kicker">02 · Join</p>
+    <h2>Join a room</h2>
+    <label for="codeInput">6 digit room code</label>
+    <input id="codeInput" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="off">
+    <div style="height:14px"></div>
+    <button class="btn" id="joinBtn">Join room</button>
+    <p id="joinError"></p>
+  </div>
+  <div class="card hidden" id="recentCard">
+    <p class="kicker">03 · Return</p>
+    <h2>Recent rooms on this device</h2>
+    <div id="recentList"></div>
+    <p>Saved only in this browser. Tap a code to fill it in.</p>
+  </div>
+  <div class="card card--note">
+    <p class="kicker">Honest note on safety</p>
+    <h2>The code is the key.</h2>
+    <p>The 6 digit code is also the encryption key. Anyone who has the code can join the room and read what is shared, so send the code only to yourself or someone you trust, and clear the room when you are done.</p>
+  </div>
+</section>
+
+<section id="roomView" class="hidden">
+  <div class="card">
+    <p class="kicker">Your room</p>
+    <div class="row">
+      <div><h2>One code, every device</h2><p>Open this link, scan the QR, or type the code on your other device.</p></div>
+      <figure class="fixed qr" style="margin:0"><img id="qrImg" alt="QR code for the join link"><figcaption>Scan to join</figcaption></figure>
+    </div>
+    <div class="code" id="roomCode">------</div>
+    <p class="code-sub">Room code</p>
+    <div class="linkbox" id="joinLink"></div>
+    <div style="height:12px"></div>
+    <div class="row">
+      <button class="small fixed" id="copyLinkBtn">Copy join link</button>
+      <button class="small fixed" id="copyCodeBtn">Copy code</button>
+      <span class="status" id="deviceCount"></span>
+    </div>
+    <div id="deviceList" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <p class="kicker">Send</p>
+    <h2>Send something across</h2>
+    <div class="toggle" role="group" aria-label="Message type">
+      <button id="modeText" class="sel" type="button">Text or link</button>
+      <button id="modeSecret" type="button">Password or secret</button>
+    </div>
+    <label for="textInput">Text</label>
+    <textarea id="textInput" maxlength="20000" placeholder="Paste text, a link or a password here"></textarea>
+    <div class="count"><span id="charCount">0</span> / 20000</div>
+    <div class="secretbox hidden" id="secretWarn">Secret mode: extra care for passwords. Everything in this room is hidden by default, secrets stay hidden too, with Reveal and Copy buttons. After copying a secret, use Clear clipboard on the receiving device.</div>
+    <div style="height:12px"></div>
+    <button class="btn" id="sendBtn">Send encrypted</button>
+    <div style="height:16px"></div>
+    <div class="drop" id="dropZone">Drop a file here, or tap to choose a file (max 25 MB, encrypted before upload)</div>
+    <p>Files send only while both devices are connected.</p>
+    <input type="file" id="fileInput" class="hidden">
+    <p id="fileStatus"></p>
+  </div>
+
+  <div class="card">
+    <p class="kicker">In this room</p>
+    <div class="row">
+      <h2 style="flex:1">Shared, under cover</h2>
+      <button class="small fixed" id="clearClipboardBtn">Clear clipboard</button>
+      <button class="small fixed danger" id="clearRoomBtn">Clear room</button>
+      <button class="small fixed" id="leaveBtn">Leave</button>
+    </div>
+    <p style="margin:4px 0 12px">Everything shared stays hidden on screen. Use Reveal to see it, or Copy / Download to take it.</p>
+    <div id="messages"><p class="empty"><strong>Nothing here yet</strong>Send something from any device in this room and it will land here, hidden.</p></div>
+  </div>
+</section>
+
+<footer><strong>ApnaPaste</strong> is personal, for Mohammad Shadab only.<br>End to end encrypted with AES-GCM. Key derived from the room code with PBKDF2, 150000 iterations.<br>A public relay passes ciphertext between your devices. It cannot read what you share.</footer>
+</div>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+'use strict';
+const SALT = 'ApnaPaste-v1-salt';
+const ITER = 150000;
+const $ = id => document.getElementById(id);
+const deviceId = (() => { let v = localStorage.getItem('apnapaste-device'); if (!v) { v = crypto.randomUUID(); localStorage.setItem('apnapaste-device', v); } return v; })();
+let roomCode = null, cryptoKey = null, mode = 'text', seen = new Set();
+let client = null, base = null, presenceTimer = null;
+const presenceMap = new Map();
+const knownMsgIds = new Set();
+const fileState = new Map();
+const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+
+function defaultLabel() { return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'Phone' : 'Laptop'; }
+$('labelInput').value = localStorage.getItem('apnapaste-label') || defaultLabel();
+function myLabel() { const v = $('labelInput').value.trim() || defaultLabel(); localStorage.setItem('apnapaste-label', v); return v; }
+
+function b64(buf) { const bytes = new Uint8Array(buf); let s = ''; const CH = 0x8000; for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH)); return btoa(s); }
+function unb64(s) { const bin = atob(s); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return bytes; }
+
+async function deriveKey(code) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(code), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: new TextEncoder().encode(SALT), iterations: ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function encText(str) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, new TextEncoder().encode(str)); return { iv: b64(iv), data: b64(ct) }; }
+async function decText(ivB64, dataB64) { const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(ivB64) }, cryptoKey, unb64(dataB64)); return new TextDecoder().decode(pt); }
+async function encBytes(buf) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, buf); return { iv: b64(iv), data: b64(ct) }; }
+async function decBytes(ivB64, dataB64) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(ivB64) }, cryptoKey, unb64(dataB64)); }
+
+function saveRecent(code) {
+  let list = JSON.parse(localStorage.getItem('apnapaste-recent') || '[]');
+  list = list.filter(x => x.code !== code); list.unshift({ code, at: Date.now() });
+  localStorage.setItem('apnapaste-recent', JSON.stringify(list.slice(0, 5))); renderRecent();
+}
+function renderRecent() {
+  const list = JSON.parse(localStorage.getItem('apnapaste-recent') || '[]');
+  $('recentCard').classList.toggle('hidden', !list.length);
+  $('recentList').innerHTML = '';
+  list.forEach(x => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = x.code + '  ·  ' + new Date(x.at).toLocaleString(); c.onclick = () => { $('codeInput').value = x.code; }; $('recentList').appendChild(c); });
+}
+renderRecent();
+
+async function enterRoom(code) {
+  roomCode = code; cryptoKey = await deriveKey(code);
+  $('homeView').classList.add('hidden'); $('roomView').classList.remove('hidden');
+  $('roomCode').textContent = code;
+  const link = location.origin + location.pathname + '?room=' + code;
+  $('joinLink').textContent = link;
+  $('qrImg').src = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(link);
+  saveRecent(code); setStatus(false, 'Connecting');
+  base = await topicBaseFor(code);
+  connectMqtt(0);
+}
+let lastOkAt = 0;
+function markOk() { lastOkAt = Date.now(); setStatus(true, 'Connected, encrypted'); }
+function markBad() { if (Date.now() - lastOkAt > 8000) setStatus(false, 'Reconnecting, retrying automatically'); }
+async function topicBaseFor(code) {
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code + ':' + SALT));
+  const hex = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return 'apnapaste/v2/' + hex.slice(0, 40);
+}
+function presenceTopic() { return base + '/presence/' + deviceId; }
+function publishPresence() {
+  if (!client || !client.connected || !base) return;
+  client.publish(presenceTopic(), JSON.stringify({ label: myLabel(), at: Date.now() }), { retain: true, qos: 1 });
+}
+function connectMqtt(idx) {
+  if (client) { try { client.end(true); } catch (e) {} client = null; }
+  const url = BROKERS[idx];
+  let opened = false;
+  const c = mqtt.connect(url, {
+    clientId: 'apnapaste-' + deviceId.slice(0, 8) + '-' + Math.random().toString(36).slice(2, 8),
+    reconnectPeriod: 3000,
+    connectTimeout: 8000,
+    will: { topic: presenceTopic(), payload: '', retain: true, qos: 1 }
+  });
+  client = c;
+  const fallbackTimer = setTimeout(() => {
+    if (!opened && idx + 1 < BROKERS.length) { try { c.end(true); } catch (e) {} if (client === c) connectMqtt(idx + 1); }
+  }, 9000);
+  c.on('connect', () => {
+    opened = true; clearTimeout(fallbackTimer); markOk();
+    c.subscribe([base + '/msg/+', base + '/file/+/+', base + '/presence/+', base + '/control'], { qos: 1 });
+    publishPresence();
+    if (presenceTimer) clearInterval(presenceTimer);
+    presenceTimer = setInterval(() => { publishPresence(); prunePresence(); }, 20000);
+  });
+  c.on('reconnect', () => setStatus(false, 'Reconnecting, retrying automatically'));
+  c.on('offline', () => setStatus(false, 'Reconnecting, retrying automatically'));
+  c.on('close', () => { if (roomCode) markBad(); });
+  c.on('error', () => {});
+  c.on('message', onMqttMessage);
+}
+function prunePresence() {
+  const now = Date.now();
+  const list = [];
+  presenceMap.forEach((v, id) => { if (v && (now - (v.at || 0) < 50000 || v.retained)) list.push({ deviceId: id, label: v.label || 'Device' }); });
+  renderDevices(list);
+}
+function onMqttMessage(topic, payload, packet) {
+  const text = payload ? payload.toString() : '';
+  const parts = topic.split('/');
+  const kind = parts[parts.length - 2];
+  const tail = parts[parts.length - 1];
+  if (kind === 'presence') {
+    if (!text) { presenceMap.delete(tail); }
+    else { try { const j = JSON.parse(text); const prev = presenceMap.get(tail); presenceMap.set(tail, { label: j.label, at: j.at || 0, retained: !!((prev && prev.retained) || (packet && packet.retain)) }); } catch (e) {} }
+    prunePresence();
+    return;
+  }
+  if (tail === 'control' || kind === 'v2' || topic === base + '/control') {
+    if (!text) return;
+    try { const j = JSON.parse(text); if (j.type === 'cleared') wipeLocalRoom(); } catch (e) {}
+    return;
+  }
+  if (kind === 'msg') {
+    if (!text) return;
+    try { const msg = JSON.parse(text); knownMsgIds.add(msg.id); addMessage(msg); markOk(); } catch (e) {}
+    return;
+  }
+  if (parts[parts.length - 3] === 'file') {
+    const fileId = tail === undefined ? null : parts[parts.length - 2];
+    if (!text) return;
+    try { const j = JSON.parse(text); onFileChunk(j.fileId || fileId, j); } catch (e) {}
+    return;
+  }
+}
+function getFileEntry(id) {
+  let e = fileState.get(id);
+  if (!e) { e = { total: 0, pieces: new Map(), msg: null, uiUpdate: null }; fileState.set(id, e); }
+  return e;
+}
+function onFileChunk(fileId, j) {
+  if (!fileId || typeof j.seq !== 'number' || typeof j.piece !== 'string') return;
+  const e = getFileEntry(fileId);
+  if (typeof j.total === 'number') e.total = j.total;
+  e.pieces.set(j.seq, j.piece);
+  if (e.uiUpdate) e.uiUpdate();
+}
+function wipeLocalRoom() {
+  seen.clear(); fileState.clear();
+  $('messages').innerHTML = '<p>Room cleared.</p>';
+}
+function setStatus(on, text) { $('statusDot').className = 'dot' + (on ? ' on' : ''); $('statusText').textContent = text; }
+
+function renderDevices(devices) {
+  $('deviceCount').textContent = devices.length + ' device' + (devices.length === 1 ? '' : 's') + ' in room' + (devices.length < 2 ? '. Waiting for another device' : '');
+  $('deviceList').innerHTML = '';
+  devices.forEach(d => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = d.label + (d.deviceId === deviceId ? ' (this device)' : ''); $('deviceList').appendChild(c); });
+}
+function fmtTime(at) { return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ', ' + new Date(at).toLocaleDateString(); }
+function fmtSize(n) { return n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(2) + ' MB'; }
+
+async function addMessage(msg) {
+  if (!msg || seen.has(msg.id)) return; seen.add(msg.id);
+  const empty = $('messages').querySelector('p'); if (empty && seen.size === 1) $('messages').innerHTML = '';
+  const box = document.createElement('div'); box.className = 'msg';
+  const meta = document.createElement('div'); meta.className = 'meta';
+  meta.innerHTML = '<span><span class="badge"></span> <span class="who"></span></span><span class="when"></span>';
+  meta.querySelector('.badge').textContent = msg.kind;
+  meta.querySelector('.who').textContent = msg.label;
+  meta.querySelector('.when').textContent = fmtTime(msg.at);
+  box.appendChild(meta);
+  const body = document.createElement('div'); body.className = 'body'; body.textContent = 'Decrypting...';
+  box.appendChild(body); $('messages').prepend(box);
+  try {
+    if (msg.kind === 'file') {
+      body.textContent = 'Hidden file ••••••••';
+      let metaObj = null;
+      const entry = getFileEntry(msg.id);
+      entry.msg = msg;
+      if (typeof msg.total === 'number' && msg.total > 0) entry.total = msg.total;
+      const row = document.createElement('div'); row.className = 'row';
+      const reveal = document.createElement('button'); reveal.className = 'small fixed'; reveal.textContent = 'Reveal';
+      let shown = false;
+      reveal.onclick = async () => {
+        if (!metaObj) metaObj = JSON.parse(await decText(msg.metaIv, msg.metaData));
+        shown = !shown;
+        body.textContent = shown ? metaObj.name + '  ·  ' + fmtSize(metaObj.size) : 'Hidden file ••••••••';
+        reveal.textContent = shown ? 'Hide' : 'Reveal';
+      };
+      const btn = document.createElement('button'); btn.className = 'small'; btn.textContent = 'Download'; btn.disabled = true;
+      const st = document.createElement('div'); st.className = 'count'; st.style.textAlign = 'left';
+      entry.uiUpdate = () => {
+        const total = entry.total || 0, n = entry.pieces.size;
+        if (total > 0 && n >= total) { btn.disabled = false; st.textContent = 'Receiving ' + total + '/' + total + '. All parts arrived, ready to download.'; }
+        else { btn.disabled = true; st.textContent = 'Receiving ' + n + '/' + (total || '?') + '. Download unlocks when every part has arrived.'; }
+      };
+      entry.uiUpdate();
+      btn.onclick = async () => {
+        if (entry.total <= 0 || entry.pieces.size < entry.total) return;
+        btn.textContent = 'Decrypting...';
+        if (!metaObj) metaObj = JSON.parse(await decText(msg.metaIv, msg.metaData));
+        let dataB64 = ''; for (let i = 0; i < entry.total; i++) dataB64 += entry.pieces.get(i) || '';
+        const pt = await decBytes(msg.iv, dataB64); const blob = new Blob([pt], { type: metaObj.mime || 'application/octet-stream' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = metaObj.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); btn.textContent = 'Download';
+      };
+      row.appendChild(reveal); row.appendChild(btn); box.appendChild(row); box.appendChild(st);
+    } else {
+      const plain = await decText(msg.iv, msg.data);
+      body.textContent = '••••••••';
+      if (msg.kind === 'secret') {
+        const warn = document.createElement('div'); warn.className = 'secretbox'; warn.textContent = 'Secret. Keep it off shared screens. Clear your clipboard after copying.';
+        box.appendChild(warn);
+      }
+      const row = document.createElement('div'); row.className = 'row';
+      const reveal = document.createElement('button'); reveal.className = 'small fixed'; reveal.textContent = 'Reveal';
+      let shown = false; reveal.onclick = () => { shown = !shown; body.textContent = shown ? plain : '••••••••'; reveal.textContent = shown ? 'Hide' : 'Reveal'; };
+      const copy = document.createElement('button'); copy.className = 'small fixed'; copy.textContent = 'Copy'; copy.onclick = () => copyText(plain, copy);
+      row.appendChild(reveal); row.appendChild(copy); box.appendChild(row);
+    }
+  } catch (e) { body.textContent = 'Could not decrypt. Wrong room code?'; }
+}
+async function copyText(t, btn) { try { await navigator.clipboard.writeText(t); if (btn) { const o = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => btn.textContent = o, 1500); } } catch (e) { alert('Copy failed. Long press the text to copy it.'); } }
+
+$('createBtn').onclick = async () => {
+  try {
+    const n = crypto.getRandomValues(new Uint32Array(1))[0] % 900000 + 100000;
+    await enterRoom(String(n));
+  } catch (e) { alert(e.message); }
+};
+$('joinBtn').onclick = async () => {
+  const code = $('codeInput').value.trim();
+  if (!/^\d{6}$/.test(code)) { $('joinError').textContent = 'Enter the 6 digit code.'; return; }
+  try { $('joinError').textContent = ''; await enterRoom(code); }
+  catch (e) { $('joinError').textContent = e.message; }
+};
+$('modeText').onclick = () => { mode = 'text'; $('modeText').classList.add('sel'); $('modeSecret').classList.remove('sel'); $('secretWarn').classList.add('hidden'); };
+$('modeSecret').onclick = () => { mode = 'secret'; $('modeSecret').classList.add('sel'); $('modeText').classList.remove('sel'); $('secretWarn').classList.remove('hidden'); };
+$('textInput').addEventListener('input', () => $('charCount').textContent = $('textInput').value.length);
+$('sendBtn').onclick = async () => {
+  const t = $('textInput').value; if (!t) return;
+  if (!client || !client.connected) { alert('Not connected yet. Wait for the green status, then send again.'); return; }
+  const enc = await encText(t);
+  const msg = { id: crypto.randomUUID(), kind: mode, iv: enc.iv, data: enc.data, label: myLabel(), at: Date.now() };
+  knownMsgIds.add(msg.id);
+  client.publish(base + '/msg/' + msg.id, JSON.stringify(msg), { retain: true, qos: 1 });
+  $('textInput').value = ''; $('charCount').textContent = '0';
+};
+async function sendFile(file) {
+  if (!file) return;
+  if (file.size > 25 * 1024 * 1024) { $('fileStatus').textContent = 'File is over 25 MB. Not sent.'; return; }
+  if (!client || !client.connected) { $('fileStatus').textContent = 'Not connected yet. Wait for the green status, then send again.'; return; }
+  $('fileStatus').textContent = 'Encrypting ' + file.name + ' ...';
+  const buf = await file.arrayBuffer();
+  const enc = await encBytes(buf);
+  const meta = await encText(JSON.stringify({ name: file.name, size: file.size, mime: file.type }));
+  const fileId = crypto.randomUUID();
+  const CHUNK = 120000;
+  const total = Math.max(1, Math.ceil(enc.data.length / CHUNK));
+  const header = { id: fileId, kind: 'file', iv: enc.iv, metaIv: meta.iv, metaData: meta.data, total, label: myLabel(), at: Date.now() };
+  knownMsgIds.add(fileId);
+  client.publish(base + '/msg/' + fileId, JSON.stringify(header), { retain: false, qos: 1 });
+  for (let seq = 0; seq < total; seq++) {
+    const piece = enc.data.slice(seq * CHUNK, (seq + 1) * CHUNK);
+    client.publish(base + '/file/' + fileId + '/' + seq, JSON.stringify({ fileId, seq, total, piece }), { retain: false, qos: 1 });
+    if (seq % 20 === 19) await new Promise(r => setTimeout(r, 30));
+  }
+  $('fileStatus').textContent = 'Sent ' + file.name + ' (' + fmtSize(file.size) + '), encrypted.';
+}
+$('dropZone').onclick = () => $('fileInput').click();
+$('fileInput').onchange = () => sendFile($('fileInput').files[0]);
+$('dropZone').addEventListener('dragover', e => { e.preventDefault(); $('dropZone').classList.add('over'); });
+$('dropZone').addEventListener('dragleave', () => $('dropZone').classList.remove('over'));
+$('dropZone').addEventListener('drop', e => { e.preventDefault(); $('dropZone').classList.remove('over'); sendFile(e.dataTransfer.files[0]); });
+$('copyLinkBtn').onclick = e => copyText($('joinLink').textContent, e.target);
+$('copyCodeBtn').onclick = e => copyText(roomCode, e.target);
+$('clearClipboardBtn').onclick = async e => { try { await navigator.clipboard.writeText(''); e.target.textContent = 'Clipboard cleared'; setTimeout(() => e.target.textContent = 'Clear clipboard', 1500); } catch (err) { alert('Browser blocked clipboard clearing. Copy any other text to overwrite it.'); } };
+$('clearRoomBtn').onclick = async () => {
+  if (!confirm('Clear everything in this room for everyone?')) return;
+  if (client && base) {
+    knownMsgIds.forEach(id => client.publish(base + '/msg/' + id, '', { retain: true, qos: 1 }));
+    client.publish(base + '/control', JSON.stringify({ type: 'cleared', at: Date.now() }), { retain: false, qos: 1 });
+  }
+  wipeLocalRoom();
+};
+$('leaveBtn').onclick = () => {
+  try {
+    if (client && base) {
+      client.publish(presenceTopic(), '', { retain: true, qos: 1 });
+      if (presenceTimer) clearInterval(presenceTimer);
+      client.end(true);
+    }
+  } catch (e) {}
+  location.href = location.pathname;
+};
+
+const urlRoom = new URLSearchParams(location.search).get('room');
+if (urlRoom && /^\d{6}$/.test(urlRoom)) {
+  $('codeInput').value = urlRoom;
+  enterRoom(urlRoom).catch(e => { $('joinError').textContent = e.message; });
+}
+</script>
+</body>
+</html>
