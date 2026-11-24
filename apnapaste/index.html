@@ -544,7 +544,7 @@ $('clearRoomBtn').onclick = async () => {
   if (btn.dataset.armed !== '1') {
     btn.dataset.armed = '1';
     btn.textContent = 'Sure? Click again to clear for everyone';
-    clearArmTimer = setTimeout(() => { btn.dataset.armed = ''; btn.textContent = 'Clear room'; }, 4000);
+    clearArmTimer = setTimeout(() => { btn.dataset.armed = ''; btn.textContent = 'Clear room'; }, 6000);
     return;
   }
   clearTimeout(clearArmTimer);
